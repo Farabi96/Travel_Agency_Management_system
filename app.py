@@ -1,0 +1,40 @@
+﻿from flask import Flask
+from sqlalchemy import text
+
+from config import Config
+from extensions import db
+
+app = Flask(__name__)
+app.config.from_object(Config)
+
+db.init_app(app)
+
+from models import Role, Permission, User
+
+@app.route("/")
+def home():
+    return "Travel Agency Management System - Flask is running!"
+
+@app.route("/db-test")
+def db_test():
+    try:
+        database_name = db.session.execute(
+            text("SELECT DATABASE()")
+        ).scalar()
+
+        return f"Database connected successfully: {database_name}"
+
+    except Exception as e:
+        return f"Database connection failed: {e}", 500
+
+@app.route("/roles")
+def roles():
+    roles = Role.query.all()
+
+    return "<br>".join(
+        f"{role.role_id} - {role.role_name}"
+        for role in roles
+    )
+
+if __name__ == "__main__":
+    app.run(debug=True) 
