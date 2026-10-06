@@ -9,6 +9,7 @@ from routes.destination_routes import destination_bp
 from routes.tour_package_routes import tour_package_bp
 from routes.booking_routes import booking_bp
 from routes.invoice_routes import invoice_bp
+from routes.payment_routes import payment_bp
 
 
 app = Flask(__name__)
@@ -20,6 +21,7 @@ app.register_blueprint(destination_bp)
 app.register_blueprint(tour_package_bp)
 app.register_blueprint(booking_bp)
 app.register_blueprint(invoice_bp)
+app.register_blueprint(payment_bp)
 
 
 @app.route("/")
