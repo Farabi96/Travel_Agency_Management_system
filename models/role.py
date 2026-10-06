@@ -26,3 +26,9 @@ class Role(db.Model):
         nullable=False,
         server_default=db.func.current_timestamp()
     )
+
+    permissions = db.relationship(
+        "Permission",
+        secondary="role_permissions",
+        backref="roles"
+    )
