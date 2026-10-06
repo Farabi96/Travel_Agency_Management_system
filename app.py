@@ -3,17 +3,24 @@ from sqlalchemy import text
 
 from config import Config
 from extensions import db
+from models import Role, Permission, User
+from routes.destination_routes import destination_bp
+from routes.tour_package_routes import tour_package_bp
+
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
 db.init_app(app)
 
-from models import Role, Permission, User
+app.register_blueprint(destination_bp)
+app.register_blueprint(tour_package_bp)
+
 
 @app.route("/")
 def home():
     return "Travel Agency Management System - Flask is running!"
+
 
 @app.route("/db-test")
 def db_test():
@@ -27,6 +34,7 @@ def db_test():
     except Exception as e:
         return f"Database connection failed: {e}", 500
 
+
 @app.route("/roles")
 def roles():
     roles = Role.query.all()
@@ -36,5 +44,6 @@ def roles():
         for role in roles
     )
 
+
 if __name__ == "__main__":
-    app.run(debug=True) 
+    app.run(debug=True)
