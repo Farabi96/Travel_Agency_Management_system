@@ -58,7 +58,7 @@ def home():
 def db_test():
     try:
         database_name = db.session.execute(
-            text("SELECT DATABASE()")
+            text("SELECT current_database()")
         ).scalar()
 
         return f"Database connected successfully: {database_name}"

@@ -15,7 +15,7 @@ load_dotenv(
 class Config:
 
     SQLALCHEMY_DATABASE_URI = URL.create(
-        "mysql+pymysql",
+        "postgresql+psycopg",
         username=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
         host=os.getenv("DB_HOST"),
