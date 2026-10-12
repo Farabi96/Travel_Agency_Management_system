@@ -1,5 +1,6 @@
 ﻿from flask import Flask
 from flask_jwt_extended import JWTManager
+from flask_cors import CORS
 from sqlalchemy import text
 
 from config import Config
@@ -25,6 +26,17 @@ from routes.system_setting_routes import system_setting_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ]
+        }
+    },
+)
 
 db.init_app(app)
 
@@ -79,3 +91,5 @@ def roles():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+ 
