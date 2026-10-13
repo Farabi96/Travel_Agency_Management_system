@@ -109,15 +109,22 @@ export default function Home() {
     active = false;
   };
 }, []);
-   
-  const visibleDestinations = destinations.filter((destination) => {
-    const query = search.toLowerCase().trim();
-    return (
-      destination.name?.toLowerCase().includes(query) ||
-      destination.district?.toLowerCase().includes(query) ||
-      destination.division?.toLowerCase().includes(query)
-    );
-  });
+    
+const normalizeSearch = (value = "") =>
+  String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
+const visibleDestinations = destinations.filter((destination) => {
+  const query = normalizeSearch(search);
+
+  return (
+    normalizeSearch(destination.name).includes(query) ||
+    normalizeSearch(destination.district).includes(query) ||
+    normalizeSearch(destination.division).includes(query)
+  );
+});
+
 
   return (
     <main className="min-h-screen bg-white text-slate-900">
