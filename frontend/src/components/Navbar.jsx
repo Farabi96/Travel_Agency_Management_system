@@ -16,8 +16,15 @@ export default function Navbar() {
 
         <div className="hidden items-center gap-8 md:flex">
           <Link to="/" className="font-medium text-teal-700">Home</Link>
-          <a href="#destinations" className="text-slate-600 hover:text-teal-700">Destinations</a>
-          <a href="#packages" className="text-slate-600 hover:text-teal-700">Packages</a>
+          <Link
+  to="/destinations"
+  className="text-slate-600 hover:text-teal-700"
+>
+  Destinations
+</Link>
+           <Link to="/packages" className="text-slate-600 hover:text-teal-700">
+  Packages
+</Link>
           <a href="#about" className="text-slate-600 hover:text-teal-700">About</a>
         </div>
 
