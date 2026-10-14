@@ -9,7 +9,8 @@ from flask_jwt_extended import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from extensions import db
-from models import User
+ 
+from models import User, Role
 
 
 auth_bp = Blueprint(
@@ -17,6 +18,85 @@ auth_bp = Blueprint(
     __name__,
     url_prefix="/api/auth"
 )
+
+
+# ---------------------------------------------------------
+# REGISTER CUSTOMER
+# ---------------------------------------------------------
+ 
+@auth_bp.route("/register", methods=["POST"])
+def register():
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "Request body is required"}), 400
+
+    username = data.get("username", "").strip()
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+
+    if not username or not email or not password:
+        return jsonify({
+            "error": "Username, email, and password are required"
+        }), 400
+
+    if len(username) > 50:
+        return jsonify({
+            "error": "Username must be 50 characters or fewer"
+        }), 400
+
+    if len(email) > 150 or "@" not in email:
+        return jsonify({
+            "error": "Please provide a valid email address"
+        }), 400
+
+    if len(password) < 8:
+        return jsonify({
+            "error": "Password must contain at least 8 characters"
+        }), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username is already taken"}), 409
+
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "Email is already registered"}), 409
+
+    customer_role = Role.query.filter_by(
+        role_name="CUSTOMER"
+    ).first()
+
+    if not customer_role:
+        return jsonify({
+            "error": "Customer role is not configured"
+        }), 500
+
+    user = User(
+        username=username,
+        email=email,
+        password_hash=generate_password_hash(password),
+        role_id=customer_role.role_id,
+        account_status="ACTIVE"
+    )
+
+    try:
+        db.session.add(user)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        print("Registration database error:", repr(exc))
+        return jsonify({
+            "error": "Registration could not be completed"
+        }), 500
+
+    return jsonify({
+        "message": "Registration successful. You can now sign in.",
+        "user": {
+            "user_id": user.user_id,
+            "username": user.username,
+            "email": user.email,
+            "role_name": customer_role.role_name
+        }
+    }), 201
 
 
 # ---------------------------------------------------------
