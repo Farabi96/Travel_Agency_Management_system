@@ -215,15 +215,28 @@ def create_managed_user():
 
     staff_data = None
 
+
+    staff_data = None
+
     if role_name == "STAFF":
         required_fields = [
-            "employee_code",
             "first_name",
             "phone",
             "department",
             "designation",
             "joining_date"
         ]
+
+        allowed_designations = {
+            "Travel Consultant",
+            "Booking Officer",
+            "Reservation Officer",
+            "Tour Operations Officer",
+            "Customer Support Officer",
+            "Accounts Officer",
+            "Operations Officer",
+            "Operations Manager",
+        }
 
         missing_fields = [
             field for field in required_fields
@@ -236,6 +249,13 @@ def create_managed_user():
                 "missing_fields": missing_fields
             }), 400
 
+        designation = data.get("designation", "").strip()
+
+        if designation not in allowed_designations:
+            return jsonify({
+                "error": "Please select a valid employee designation."
+            }), 400
+
         try:
             joining_date = date.fromisoformat(data["joining_date"])
         except (ValueError, TypeError):
@@ -243,13 +263,30 @@ def create_managed_user():
                 "error": "joining_date must use YYYY-MM-DD format"
             }), 400
 
-        employee_code = data["employee_code"].strip()
+      
+        # Generate the next employee code automatically.
+        latest_staff = Staff.query.order_by(
+            Staff.staff_id.desc()
+        ).first()
 
-        if Staff.query.filter_by(employee_code=employee_code).first():
-            return jsonify({
-                "error": "Employee code is already in use"
-            }), 409
+        next_number = 1
 
+        if latest_staff and latest_staff.employee_code.startswith("EMP-"):
+            try:
+                next_number = int(
+                    latest_staff.employee_code.split("-")[1]
+                ) + 1
+            except (ValueError, IndexError):
+                next_number = latest_staff.staff_id + 1
+
+        employee_code = f"EMP-{next_number:04d}"
+
+        # Ensure the generated code is not already in use.
+        while Staff.query.filter_by(
+            employee_code=employee_code
+        ).first():
+            next_number += 1
+            employee_code = f"EMP-{next_number:04d}"
         manager_id = data.get("manager_id")
 
         if manager_id not in (None, ""):
@@ -263,6 +300,7 @@ def create_managed_user():
         else:
             manager_id = None
 
+               
         staff_data = {
             "employee_code": employee_code,
             "first_name": data["first_name"].strip(),
@@ -274,7 +312,7 @@ def create_managed_user():
             "manager_id": manager_id
         }
 
-    new_user = User(
+        new_user = User(
         username=username,
         email=email,
         password_hash=generate_password_hash(password),
@@ -287,20 +325,26 @@ def create_managed_user():
         db.session.flush()
 
         if staff_data:
+            from datetime import datetime
+
+            now = datetime.now()
+
             new_staff = Staff(
                 user_id=new_user.user_id,
+                created_at=now,
+                updated_at=now,
                 **staff_data
             )
             db.session.add(new_staff)
 
         db.session.commit()
 
-    except Exception:
+    except Exception as exc:
         db.session.rollback()
+        print("EMPLOYEE CREATION ERROR:", repr(exc))
         return jsonify({
-            "error": "The account could not be created. Check the submitted data and database constraints."
+            "error": "The account could not be created. Check the Flask terminal for details."
         }), 500
-
     return jsonify({
         "message": f"{role_name.replace('_', ' ').title()} account created successfully",
         "user": {
@@ -309,10 +353,15 @@ def create_managed_user():
             "email": new_user.email,
             "role_name": role.role_name,
             "account_status": new_user.account_status
-        }
+        },
+        "employee": {    
+            "staff_id": new_staff.staff_id,
+            "employee_code": new_staff.employee_code,
+            "first_name": new_staff.first_name,
+            "last_name": new_staff.last_name,
+            "designation": new_staff.designation
+        } if role_name == "STAFF" else None
     }), 201
-
-
 # ---------------------------------------------------------
 # BLOCK OR REACTIVATE AN ACCOUNT
 # PATCH /api/admin/users/<user_id>/status

@@ -1,7 +1,10 @@
 ﻿ 
 from flask import Blueprint, jsonify, request
+from flask_jwt_extended import jwt_required
+
 from models import Destination
 from extensions import db
+from auth_utils import get_current_user, role_required
 
 
 destination_bp = Blueprint(
@@ -19,11 +22,31 @@ def serialize_destination(destination):
         "district": destination.district,
         "upazila": destination.upazila,
         "description": destination.description,
-        "latitude": float(destination.latitude) if destination.latitude is not None else None,
-        "longitude": float(destination.longitude) if destination.longitude is not None else None,
+        "latitude": (
+            float(destination.latitude)
+            if destination.latitude is not None else None
+        ),
+        "longitude": (
+            float(destination.longitude)
+            if destination.longitude is not None else None
+        ),
         "image_url": destination.image_url,
-        "status": destination.status
+        "status": destination.status,
+        "created_by": destination.created_by
     }
+
+
+def destination_access_allowed(destination, user):
+    if not user or not user.role:
+        return False
+
+    if user.role.role_name == "HIGHER_ADMIN":
+        return True
+
+    if user.role.role_name == "STAFF":
+        return destination.created_by == user.user_id
+
+    return False
 
 
 @destination_bp.route("/", methods=["GET"])
@@ -33,7 +56,14 @@ def get_destinations():
 
 
 @destination_bp.route("/", methods=["POST"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
 def create_destination():
+    user = get_current_user()
+
+    if not user:
+        return jsonify({"error": "Active user not found"}), 403
+
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
@@ -55,7 +85,8 @@ def create_destination():
             latitude=data.get("latitude"),
             longitude=data.get("longitude"),
             image_url=data.get("image_url"),
-            status=data.get("status", "ACTIVE")
+            status=data.get("status", "ACTIVE"),
+            created_by=user.user_id
         )
 
         db.session.add(destination)
@@ -74,17 +105,32 @@ def create_destination():
 
 
 @destination_bp.route("/<int:destination_id>", methods=["PUT"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
 def update_destination(destination_id):
     destination = Destination.query.get_or_404(destination_id)
+    user = get_current_user()
+
+    if not destination_access_allowed(destination, user):
+        return jsonify({
+            "error": "You can only edit destinations you created"
+        }), 403
+
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "A JSON object is required"}), 400
 
     allowed_fields = [
-        "name", "division", "district", "upazila",
-        "description", "latitude", "longitude",
-        "image_url", "status"
+        "name",
+        "division",
+        "district",
+        "upazila",
+        "description",
+        "latitude",
+        "longitude",
+        "image_url",
+        "status"
     ]
 
     for field in allowed_fields:
@@ -93,6 +139,7 @@ def update_destination(destination_id):
 
     try:
         db.session.commit()
+
         return jsonify({
             "message": "Destination updated successfully",
             "destination": serialize_destination(destination)
@@ -103,3 +150,31 @@ def update_destination(destination_id):
         return jsonify({
             "error": "Destination update failed. Check supplied values and database constraints."
         }), 400
+
+
+@destination_bp.route("/<int:destination_id>", methods=["DELETE"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def delete_destination(destination_id):
+    destination = Destination.query.get_or_404(destination_id)
+    user = get_current_user()
+
+    if not destination_access_allowed(destination, user):
+        return jsonify({
+            "error": "You can only delete destinations you created"
+        }), 403
+
+    try:
+        db.session.delete(destination)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Destination deleted successfully",
+            "destination_id": destination_id
+        })
+
+    except Exception:
+        db.session.rollback()
+        return jsonify({
+            "error": "Destination cannot be deleted. It may be referenced by tour packages."
+        }), 409

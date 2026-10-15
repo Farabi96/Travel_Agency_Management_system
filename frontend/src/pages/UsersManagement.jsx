@@ -1,7 +1,7 @@
  
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, Link } from "react-router-dom";
-import {
+ import {
   ArrowLeft,
   RefreshCw,
   Search,
@@ -11,8 +11,10 @@ import {
   BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
+  Plus,
+  X,
+  UserPlus,
 } from "lucide-react";
-
 const API = "http://127.0.0.1:5000/api";
 const PAGE_SIZE = 20;
 
@@ -277,6 +279,35 @@ async function updateStaffStatus(employee) {
 
   const [staff, setStaff] = useState([]);
   const [staffLoaded, setStaffLoaded] = useState(false);
+  
+const [showEmployeeForm, setShowEmployeeForm] = useState(false);
+const [creatingEmployee, setCreatingEmployee] = useState(false);
+
+const [employeeSuccess, setEmployeeSuccess] = useState("");
+const [employeeForm, setEmployeeForm] = useState({
+  username: "",
+  email: "",
+  password: "",
+  employee_code: "",
+  first_name: "",
+  last_name: "",
+  phone: "",
+  department: "",
+  designation: "",
+  joining_date: new Date().toISOString().slice(0, 10),
+  manager_id: "",
+});
+
+const allowedDesignations = [
+  "Travel Consultant",
+  "Booking Officer",
+  "Reservation Officer",
+  "Tour Operations Officer",
+  "Customer Support Officer",
+  "Accounts Officer",
+  "Operations Officer",
+  "Operations Manager",
+];
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -397,6 +428,79 @@ async function updateStaffStatus(employee) {
       setLoading(false);
     }
   }, [token]);
+
+  async function createEmployee() {
+    if (creatingEmployee) return;
+
+    setCreatingEmployee(true);
+    setError("");
+    setEmployeeSuccess("");
+
+    try {
+      const payload = {
+        username: employeeForm.username.trim(),
+        email: employeeForm.email.trim(),
+        password: employeeForm.password,
+        role_name: "STAFF",
+        first_name: employeeForm.first_name.trim(),
+        last_name: employeeForm.last_name.trim(),
+        phone: employeeForm.phone.trim(),
+        department: employeeForm.department.trim(),
+        designation: employeeForm.designation,
+        joining_date: employeeForm.joining_date,
+        manager_id: employeeForm.manager_id
+          ? Number(employeeForm.manager_id)
+          : null,
+      };
+
+      const response = await fetch(`${API}/admin/users`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const missingFields = data.missing_fields?.join(", ");
+
+        throw new Error(
+          missingFields
+            ? `${data.error}: ${missingFields}`
+            : data.error || data.msg || "Unable to create employee."
+        );
+      }
+
+      setEmployeeSuccess(
+        `Employee account created successfully. Username: ${payload.username}`
+      );
+
+      setEmployeeForm({
+        username: "",
+        email: "",
+        password: "",
+        employee_code: "",
+        first_name: "",
+        last_name: "",
+        phone: "",
+        department: "",
+        designation: "",
+        joining_date: new Date().toISOString().slice(0, 10),
+        manager_id: "",
+      });
+
+      await loadStaff();
+    } catch (err) {
+      setError(err.message || "Unable to create employee.");
+    } finally {
+      setCreatingEmployee(false);
+    }
+  }
+
+
 
   useEffect(() => {
     if (user?.role_name !== "HIGHER_ADMIN") return;
@@ -667,31 +771,45 @@ async function updateStaffStatus(employee) {
 
         {activeTab === "staff" && (
           <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">
-                  Staff Directory
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {filteredStaff.length} staff record(s)
-                  {staffLoaded ? "" : " · Not loaded yet"}
-                </p>
-              </div>
+             <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+  <div>
+    <h2 className="text-lg font-bold text-slate-900">
+      Staff Directory
+    </h2>
+    <p className="mt-1 text-sm text-slate-500">
+      {filteredStaff.length} staff record(s)
+      {staffLoaded ? "" : " · Not loaded yet"}
+    </p>
+  </div>
 
-              <div className="relative w-full sm:max-w-sm">
-                <Search
-                  size={18}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search staff or department..."
-                  className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-4 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-                />
-              </div>
-            </div>
+  <div className="flex flex-col gap-3 sm:flex-row">
+    <button
+      onClick={() => {
+        setEmployeeSuccess("");
+        setError("");
+        setShowEmployeeForm(true);
+      }}
+      className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-3 font-semibold text-white hover:bg-teal-800"
+    >
+      <Plus size={18} />
+      Add Employee
+    </button>
+
+    <div className="relative w-full sm:max-w-sm">
+      <Search
+        size={18}
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+      />
+      <input
+        type="search"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Search staff or department..."
+        className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-4 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+      />
+    </div>
+  </div>
+</div>
 
             {loading ? (
               <EmptyState>Loading staff records...</EmptyState>
@@ -706,6 +824,175 @@ async function updateStaffStatus(employee) {
             ) : null}
           </section>
         )}
+        {activeTab === "staff" && showEmployeeForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+              <div className="mb-6 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">
+                    Create Employee
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Create a staff account and employee profile.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowEmployeeForm(false)}
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                  aria-label="Close form"
+                >
+                  <X size={22} />
+                </button>
+              </div>
+
+              {employeeSuccess && (
+  <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+    {employeeSuccess}
+  </div>
+)}
+
+            <form
+ 
+  onSubmit={(event) => {
+    event.preventDefault();
+    createEmployee();
+  }}
+  className="grid gap-4 sm:grid-cols-2"
+>
+                {[
+                  ["username", "Username"],
+                  ["email", "Email"],
+                  ["password", "Temporary Password"],
+                  
+                  ["first_name", "First Name"],
+                  ["last_name", "Last Name"],
+                  ["phone", "Phone"],
+                  ["department", "Department"],
+                ].map(([name, label]) => (
+                  <div key={name}>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">
+                      {label}
+                    </label>
+                    <input
+                      type={
+                        name === "password"
+                          ? "password"
+                          : name === "email"
+                            ? "email"
+                            : "text"
+                      }
+                      required={name !== "last_name"}
+                      minLength={name === "password" ? 8 : undefined}
+                      value={employeeForm[name]}
+                      onChange={(event) =>
+                        setEmployeeForm((current) => ({
+                          ...current,
+                          [name]: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                    />
+                  </div>
+                ))}
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    Designation
+                  </label>
+                  <select
+                    required
+                    value={employeeForm.designation}
+                    onChange={(event) =>
+                      setEmployeeForm((current) => ({
+                        ...current,
+                        designation: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-600"
+                  >
+                    <option value="">Select designation</option>
+                    {allowedDesignations.map((designation) => (
+                      <option key={designation} value={designation}>
+                        {designation}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    Joining Date
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={employeeForm.joining_date}
+                    onChange={(event) =>
+                      setEmployeeForm((current) => ({
+                        ...current,
+                        joining_date: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    Manager (Optional)
+                  </label>
+                  <select
+                    value={employeeForm.manager_id}
+                    onChange={(event) =>
+                      setEmployeeForm((current) => ({
+                        ...current,
+                        manager_id: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-600"
+                  >
+                    <option value="">No manager</option>
+                    {staff
+                      .filter(
+                        (employee) =>
+                          employee.employment_status === "ACTIVE"
+                      )
+                      .map((employee) => (
+                        <option
+                          key={employee.staff_id}
+                          value={employee.staff_id}
+                        >
+                          {employee.first_name} {employee.last_name || ""} —{" "}
+                          {employee.designation}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="flex justify-end gap-3 sm:col-span-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmployeeForm(false)}
+                    className="rounded-lg border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={creatingEmployee}
+                    className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-5 py-2.5 font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
+                  >
+                    <UserPlus size={17} />
+                    Create Employee
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
       </div>
     </main>
   );

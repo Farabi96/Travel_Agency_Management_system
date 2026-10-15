@@ -1,5 +1,32 @@
-
+ 
 const API_BASE_URL = "http://127.0.0.1:5000/api";
+
+// ------------------------------
+// AUTHENTICATED REQUEST HELPER
+// ------------------------------
+
+async function authenticatedRequest(path, options = {}) {
+  const token = sessionStorage.getItem("access_token");
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...options.headers,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || data.msg || `Request failed (${response.status})`
+    );
+  }
+
+  return data;
+}
 
 // ------------------------------
 // DESTINATIONS
@@ -13,6 +40,26 @@ export async function getDestinations() {
   }
 
   return response.json();
+}
+
+export async function createDestination(destination) {
+  return authenticatedRequest("/destinations/", {
+    method: "POST",
+    body: JSON.stringify(destination),
+  });
+}
+
+export async function updateDestination(destinationId, destination) {
+  return authenticatedRequest(`/destinations/${destinationId}`, {
+    method: "PUT",
+    body: JSON.stringify(destination),
+  });
+}
+
+export async function deleteDestination(destinationId) {
+  return authenticatedRequest(`/destinations/${destinationId}`, {
+    method: "DELETE",
+  });
 }
 
 // ------------------------------
@@ -45,7 +92,7 @@ export async function loginUser(credentials) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || "Login failed");
+    throw new Error(data.error || data.msg || "Login failed");
   }
 
   return data;
@@ -65,13 +112,15 @@ export async function getCurrentUser(token) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || "Failed to get current user");
+    throw new Error(data.error || data.msg || "Failed to get current user");
   }
 
   return data;
 }
 
-
+// ------------------------------
+// REGISTRATION
+// ------------------------------
 
 export async function registerUser(userData) {
   const response = await fetch(`${API_BASE_URL}/auth/register`, {
@@ -85,7 +134,7 @@ export async function registerUser(userData) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || "Registration failed");
+    throw new Error(data.error || data.msg || "Registration failed");
   }
 
   return data;

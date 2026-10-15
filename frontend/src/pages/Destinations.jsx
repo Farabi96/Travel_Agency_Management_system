@@ -1,43 +1,308 @@
+ 
 import { useEffect, useMemo, useState } from "react";
-import { Search, MapPin, LoaderCircle } from "lucide-react";
-import { getDestinations } from "../services/api";
+import { Search, MapPin, LoaderCircle, Plus, Pencil, Trash2, X } from "lucide-react";
+import {
+  getDestinations,
+  createDestination,
+  updateDestination,
+  deleteDestination,
+} from "../services/api";
+
+const emptyForm = {
+  name: "",
+  division: "",
+  district: "",
+  upazila: "",
+  description: "",
+  latitude: "",
+  longitude: "",
+  image_url: "",
+  status: "ACTIVE",
+};
 
 export default function Destinations() {
   const [destinations, setDestinations] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+
+  const token = sessionStorage.getItem("access_token");
+  const user = JSON.parse(sessionStorage.getItem("user") || "null");
+  const role = user?.role_name;
+  const userId = Number(user?.user_id);
+
+  const canManage = Boolean(
+    token && ["STAFF", "HIGHER_ADMIN"].includes(role)
+  );
+
+  async function loadDestinations() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const data = await getDestinations();
+      setDestinations(Array.isArray(data) ? data : data.destinations || []);
+    } catch (err) {
+      setError(err.message || "Could not load destinations.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    getDestinations()
-      .then((data) => {
-        setDestinations(Array.isArray(data) ? data : data.destinations || []);
-      })
-      .catch(() => setError("Could not load destinations. Please try again."))
-      .finally(() => setLoading(false));
+    loadDestinations();
   }, []);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
+
     return destinations.filter((destination) =>
-      [destination.destination_name, destination.name, destination.description, destination.country]
+      [
+        destination.name,
+        destination.division,
+        destination.district,
+        destination.upazila,
+        destination.description,
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query))
     );
   }, [destinations, search]);
 
+  function canEdit(destination) {
+    return role === "HIGHER_ADMIN" ||
+      (role === "STAFF" && Number(destination.created_by) === userId);
+  }
+
+  function openCreateForm() {
+    setEditingId(null);
+    setForm({ ...emptyForm });
+    setError("");
+    setMessage("");
+    setShowForm(true);
+  }
+
+  function openEditForm(destination) {
+    setEditingId(destination.destination_id);
+    setForm({
+      name: destination.name || "",
+      division: destination.division || "",
+      district: destination.district || "",
+      upazila: destination.upazila || "",
+      description: destination.description || "",
+      latitude: destination.latitude ?? "",
+      longitude: destination.longitude ?? "",
+      image_url: destination.image_url || "",
+      status: destination.status || "ACTIVE",
+    });
+    setError("");
+    setMessage("");
+    setShowForm(true);
+  }
+
+  function handleChange(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setMessage("");
+
+    const payload = {
+      ...form,
+      latitude: form.latitude === "" ? null : Number(form.latitude),
+      longitude: form.longitude === "" ? null : Number(form.longitude),
+    };
+
+    try {
+      if (editingId !== null) {
+        await updateDestination(editingId, payload);
+        setMessage("Destination updated successfully.");
+      } else {
+        await createDestination(payload);
+        setMessage("Destination created successfully.");
+      }
+
+      setShowForm(false);
+      setForm({ ...emptyForm });
+      setEditingId(null);
+      await loadDestinations();
+    } catch (err) {
+      setError(err.message || "Could not save destination.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(destination) {
+    const confirmed = window.confirm(
+      `Delete "${destination.name}"? This action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setMessage("");
+
+    try {
+      await deleteDestination(destination.destination_id);
+      setMessage("Destination deleted successfully.");
+      await loadDestinations();
+    } catch (err) {
+      setError(err.message || "Could not delete destination.");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-12 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <p className="font-semibold uppercase tracking-widest text-teal-700">
-          Explore the world
+          Explore Bangladesh
         </p>
-        <h1 className="mt-3 text-4xl font-bold text-slate-900 md:text-5xl">
-          Discover Destinations
-        </h1>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-4xl font-bold text-slate-900 md:text-5xl">
+            Discover Destinations
+          </h1>
+
+          {canManage && (
+            <button
+              type="button"
+              onClick={openCreateForm}
+              className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-3 font-semibold text-white hover:bg-teal-800"
+            >
+              <Plus size={19} />
+              Add Destination
+            </button>
+          )}
+        </div>
+
         <p className="mt-4 max-w-2xl text-slate-600">
           Find your next adventure from our available travel destinations.
         </p>
+
+        {message && (
+          <p className="mt-5 rounded-lg bg-green-50 p-3 text-green-800">
+            {message}
+          </p>
+        )}
+
+        {error && (
+          <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-red-700">
+            {error}
+          </p>
+        )}
+
+        {showForm && (
+          <form
+            onSubmit={handleSubmit}
+            className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+          >
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <h2 className="text-xl font-bold text-slate-900">
+                {editingId !== null ? "Edit Destination" : "Add Destination"}
+              </h2>
+
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                aria-label="Close form"
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                ["name", "Destination name", true],
+                ["division", "Division", true],
+                ["district", "District", true],
+                ["upazila", "Upazila", false],
+                ["latitude", "Latitude", false],
+                ["longitude", "Longitude", false],
+                ["image_url", "Image URL", false],
+              ].map(([name, label, required]) => (
+                <label key={name} className="block text-sm font-medium text-slate-700">
+                  {label}
+                  <input
+                    name={name}
+                    value={form[name]}
+                    onChange={handleChange}
+                    required={required}
+                    type={name === "latitude" || name === "longitude" ? "number" : "text"}
+                    step={name === "latitude" || name === "longitude" ? "any" : undefined}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-600"
+                  />
+                </label>
+              ))}
+
+              <label className="block text-sm font-medium text-slate-700">
+                Status
+                <select
+                  name="status"
+                  value={form.status}
+                  onChange={handleChange}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                >
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                </select>
+              </label>
+
+              <label className="block text-sm font-medium text-slate-700 sm:col-span-2 lg:col-span-3">
+                Description
+                <textarea
+                  name="description"
+                  value={form.description}
+                  onChange={handleChange}
+                  rows={3}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-600"
+                />
+              </label>
+            </div>
+
+            {form.image_url && (
+              <div className="mt-4">
+                <p className="mb-2 text-sm text-slate-600">Image preview</p>
+                <img
+                  src={form.image_url}
+                  alt="Destination preview"
+                  className="h-40 w-full rounded-xl object-cover sm:w-72"
+                  onError={(event) => {
+                    event.currentTarget.style.display = "none";
+                  }}
+                />
+              </div>
+            )}
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-teal-700 px-5 py-2.5 font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+              >
+                {saving ? "Saving..." : editingId !== null ? "Save Changes" : "Create Destination"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="rounded-lg border border-slate-300 px-5 py-2.5 font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="mt-8 flex max-w-xl items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <Search className="text-slate-400" size={21} />
@@ -57,8 +322,6 @@ export default function Destinations() {
           </p>
         )}
 
-        {error && <p className="mt-8 text-red-600">{error}</p>}
-
         {!loading && !error && (
           <>
             <p className="mt-8 text-sm text-slate-500">
@@ -73,21 +336,58 @@ export default function Destinations() {
               <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {filtered.map((destination) => (
                   <article
-                    key={destination.destination_id ?? destination.id ?? destination.name}
-                    className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+                    key={destination.destination_id}
+                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-md"
                   >
-                    <span className="inline-flex rounded-xl bg-teal-50 p-3 text-teal-700">
-                      <MapPin size={24} />
-                    </span>
-                    <h2 className="mt-4 text-xl font-bold text-slate-900">
-                      {destination.destination_name ?? destination.name ?? "Destination"}
-                    </h2>
-                    {destination.country && (
-                      <p className="mt-1 text-sm text-slate-500">{destination.country}</p>
+                    {destination.image_url ? (
+                      <img
+                        src={destination.image_url}
+                        alt={destination.name}
+                        className="h-48 w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-32 items-center justify-center bg-teal-50 text-teal-700">
+                        <MapPin size={32} />
+                      </div>
                     )}
-                    <p className="mt-3 text-sm leading-6 text-slate-600">
-                      {destination.description || "Explore this destination on your next trip."}
-                    </p>
+
+                    <div className="p-6">
+                      <h2 className="text-xl font-bold text-slate-900">
+                        {destination.name || "Destination"}
+                      </h2>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        {[destination.upazila, destination.district, destination.division]
+                          .filter(Boolean)
+                          .join(", ")}
+                      </p>
+
+                      <p className="mt-3 text-sm leading-6 text-slate-600">
+                        {destination.description || "Explore this destination on your next trip."}
+                      </p>
+
+                      {canManage && canEdit(destination) && (
+                        <div className="mt-5 flex gap-3 border-t border-slate-100 pt-4">
+                          <button
+                            type="button"
+                            onClick={() => openEditForm(destination)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            <Pencil size={16} />
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(destination)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 size={16} />
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </article>
                 ))}
               </div>

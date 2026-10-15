@@ -59,6 +59,18 @@ class Destination(db.Model):
         server_default="ACTIVE"
     )
 
+    created_by = db.Column(
+        db.BigInteger,
+        db.ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    creator = db.relationship(
+        "User",
+        backref="created_destinations"
+    )
+
+
     created_at = db.Column(
         db.DateTime,
         nullable=False,
