@@ -17,7 +17,7 @@ export default function Navbar() {
     sessionStorage.removeItem("access_token");
   }
 
-  // Don't show an authenticated state without both values.
+  // Show authenticated navigation only when both values exist.
   const isLoggedIn = Boolean(token && user);
 
   function handleLogout() {
@@ -36,44 +36,66 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
+        {/* Brand */}
         <Link to="/" className="flex items-center gap-2">
           <span className="rounded-xl bg-teal-600 p-2 text-white">
             <Compass size={23} />
           </span>
+
           <span className="text-xl font-bold tracking-tight text-slate-900">
             Travel<span className="text-teal-600">Mate</span>
           </span>
         </Link>
 
+        {/* Desktop public navigation */}
         <div className="hidden items-center gap-8 md:flex">
           <Link to="/" className="font-medium text-teal-700">
             Home
           </Link>
+
           <Link
             to="/destinations"
             className="text-slate-600 hover:text-teal-700"
           >
             Destinations
           </Link>
+
           <Link
             to="/packages"
             className="text-slate-600 hover:text-teal-700"
           >
             Packages
           </Link>
-          <a href="/#about" className="text-slate-600 hover:text-teal-700">
+
+          <a
+            href="/#about"
+            className="text-slate-600 hover:text-teal-700"
+          >
             About
           </a>
         </div>
 
+        {/* Desktop account navigation */}
         <div className="hidden items-center gap-3 md:flex">
           {isLoggedIn ? (
             <>
+              {user.role_name === "CUSTOMER" && (
+                <Link
+                  to="/customer/profile"
+                  className="text-sm font-medium text-slate-700 hover:text-teal-700"
+                >
+                  My Profile
+                </Link>
+              )}
+
               <Link
                 to="/dashboard"
                 className="text-right text-sm text-slate-700 hover:text-teal-700"
               >
-                <span className="block font-semibold">{user.username}</span>
+                <span className="block font-semibold">
+                  {user.username}
+                </span>
+
                 <span className="block text-xs text-slate-500">
                   {roleLabel[user.role_name] || user.role_name}
                 </span>
@@ -98,39 +120,78 @@ export default function Navbar() {
           )}
         </div>
 
+        {/* Mobile menu button */}
         <button
           className="rounded-lg p-2 text-slate-700 md:hidden"
           aria-label="Toggle menu"
           aria-expanded={menuOpen}
-          onClick={() => setMenuOpen(!menuOpen)}
+          onClick={() => setMenuOpen((previous) => !previous)}
         >
           <Menu size={25} />
         </button>
       </nav>
 
+      {/* Mobile navigation */}
       {menuOpen && (
         <div className="space-y-3 border-t border-slate-200 bg-white px-5 py-4 md:hidden">
-          <Link className="block text-slate-700" to="/" onClick={() => setMenuOpen(false)}>
+          <Link
+            className="block text-slate-700"
+            to="/"
+            onClick={() => setMenuOpen(false)}
+          >
             Home
           </Link>
-          <Link className="block text-slate-700" to="/destinations" onClick={() => setMenuOpen(false)}>
+
+          <Link
+            className="block text-slate-700"
+            to="/destinations"
+            onClick={() => setMenuOpen(false)}
+          >
             Destinations
           </Link>
-          <Link className="block text-slate-700" to="/packages" onClick={() => setMenuOpen(false)}>
+
+          <Link
+            className="block text-slate-700"
+            to="/packages"
+            onClick={() => setMenuOpen(false)}
+          >
             Packages
           </Link>
 
           {isLoggedIn ? (
             <>
-              <Link className="block text-slate-700" to="/dashboard" onClick={() => setMenuOpen(false)}>
-                {user.username} ({roleLabel[user.role_name] || user.role_name})
+              {user.role_name === "CUSTOMER" && (
+                <Link
+                  className="block font-medium text-teal-700"
+                  to="/customer/profile"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  My Profile
+                </Link>
+              )}
+
+              <Link
+                className="block text-slate-700"
+                to="/dashboard"
+                onClick={() => setMenuOpen(false)}
+              >
+                {user.username} (
+                {roleLabel[user.role_name] || user.role_name})
               </Link>
-              <button onClick={handleLogout} className="font-semibold text-red-600">
+
+              <button
+                onClick={handleLogout}
+                className="font-semibold text-red-600"
+              >
                 Logout
               </button>
             </>
           ) : (
-            <Link className="block font-semibold text-teal-700" to="/login" onClick={() => setMenuOpen(false)}>
+            <Link
+              className="block font-semibold text-teal-700"
+              to="/login"
+              onClick={() => setMenuOpen(false)}
+            >
               Sign in
             </Link>
           )}

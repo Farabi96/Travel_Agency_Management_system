@@ -1,4 +1,5 @@
-﻿from models.role import Role
+
+from models.role import Role
 from models.permission import Permission
 from models.user import User
 from models.role_permission import RolePermission
@@ -9,6 +10,7 @@ from models.staff import Staff
 from models.staff_private_information import StaffPrivateInformation
 from models.destination import Destination
 from models.tour_package import TourPackage
+from models.tour_schedule import TourSchedule
 from models.package_destination import PackageDestination
 from models.package_itinerary import PackageItinerary
 from models.service import Service

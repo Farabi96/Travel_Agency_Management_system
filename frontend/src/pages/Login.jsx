@@ -1,7 +1,11 @@
 
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { loginUser } from "../services/api";
+ import {
+  loginUser,
+  getCurrentUser,
+  getOwnCustomerProfile,
+} from "../services/api";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -11,30 +15,43 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError("");
-    setLoading(true);
 
-    try {
-      const isEmail = identifier.includes("@");
+async function handleSubmit(event) {
+  event.preventDefault();
+  setError("");
+  setLoading(true);
 
-      const result = await loginUser({
-        [isEmail ? "email" : "username"]: identifier.trim(),
-        password,
-      });
+  try {
+    const isEmail = identifier.includes("@");
 
-      // Save the authentication token for subsequent API requests.
-      sessionStorage.setItem("access_token", result.access_token);
-      sessionStorage.setItem("user", JSON.stringify(result.user));
+    const result = await loginUser({
+      [isEmail ? "email" : "username"]: identifier.trim(),
+      password,
+    });
 
+    sessionStorage.setItem("access_token", result.access_token);
+
+    const currentUser = await getCurrentUser(result.access_token);
+    sessionStorage.setItem("user", JSON.stringify(currentUser));
+
+    if (currentUser.role_name === "CUSTOMER") {
+      const profile = await getOwnCustomerProfile();
+
+      if (profile === null) {
+        navigate("/customer/profile");
+      } else {
+        navigate("/dashboard");
+      }
+    } else {
       navigate("/dashboard");
-    } catch (err) {
-      setError(err.message || "Unable to log in. Please try again.");
-    } finally {
-      setLoading(false);
     }
+  } catch (err) {
+    setError(err.message || "Unable to log in. Please try again.");
+  } finally {
+    setLoading(false);
   }
+}
+
 
   return (
     <main className="flex min-h-[80vh] items-center justify-center bg-slate-50 px-4 py-12">

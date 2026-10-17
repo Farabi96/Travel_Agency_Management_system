@@ -1,4 +1,4 @@
- 
+
 const API_BASE_URL = "http://127.0.0.1:5000/api";
 
 // ------------------------------
@@ -62,7 +62,8 @@ export async function deleteDestination(destinationId) {
   });
 }
 
-// ------------------------------
+
+ // ------------------------------
 // TOUR PACKAGES
 // ------------------------------
 
@@ -75,6 +76,61 @@ export async function getPackages() {
 
   return response.json();
 }
+
+export async function createPackage(packageData) {
+  return authenticatedRequest("/packages/", {
+    method: "POST",
+    body: JSON.stringify(packageData),
+  });
+}
+
+export async function updatePackage(packageId, packageData) {
+  return authenticatedRequest(`/packages/${packageId}`, {
+    method: "PUT",
+    body: JSON.stringify(packageData),
+  });
+}
+
+export async function deletePackage(packageId) {
+  return authenticatedRequest(`/packages/${packageId}`, {
+    method: "DELETE",
+  });
+}
+
+
+ // ------------------------------
+// TOUR SCHEDULES
+// ------------------------------
+
+export async function getSchedules(packageId) {
+  const query = packageId
+    ? `?package_id=${encodeURIComponent(packageId)}`
+    : "";
+
+  const response = await fetch(`${API_BASE_URL}/schedules/${query}`);
+
+  if (!response.ok) {
+    throw new Error("Failed to load tour schedules");
+  }
+
+  return response.json();
+}
+
+export async function getScheduleAvailability(scheduleId) {
+  const response = await fetch(
+    `${API_BASE_URL}/schedules/${encodeURIComponent(scheduleId)}/availability`
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to load seat availability");
+  }
+
+  return data;
+}
+
+
 
 // ------------------------------
 // LOGIN
@@ -138,4 +194,51 @@ export async function registerUser(userData) {
   }
 
   return data;
+}
+
+
+export async function createOwnCustomerProfile(profileData) {
+  return authenticatedRequest("/customers/me", {
+    method: "POST",
+    body: JSON.stringify(profileData),
+  });
+}
+
+export async function getOwnCustomerProfile() {
+  const token = sessionStorage.getItem("access_token");
+
+  const response = await fetch(`${API_BASE_URL}/customers/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.status === 404 && data.profile_exists === false) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || data.msg || `Request failed (${response.status})`
+    );
+  }
+
+  return data.customer;
+}
+
+export async function updateOwnCustomerProfile(profileData) {
+  return authenticatedRequest("/customers/me", {
+    method: "PUT",
+    body: JSON.stringify(profileData),
+  });
+}
+
+
+export async function changePassword(passwordData) {
+  return authenticatedRequest("/auth/change-password", {
+    method: "PUT",
+    body: JSON.stringify(passwordData),
+  });
 }

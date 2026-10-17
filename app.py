@@ -22,7 +22,7 @@ from routes.review_routes import review_bp
 from routes.favorite_routes import favorite_bp
 from routes.audit_log_routes import audit_log_bp
 from routes.system_setting_routes import system_setting_bp
-
+from routes.tour_schedule_routes import tour_schedule_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -59,6 +59,7 @@ app.register_blueprint(review_bp)
 app.register_blueprint(favorite_bp)
 app.register_blueprint(audit_log_bp)
 app.register_blueprint(system_setting_bp)
+app.register_blueprint(tour_schedule_bp)
 
 
 @app.route("/")

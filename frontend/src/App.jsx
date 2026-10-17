@@ -9,6 +9,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Register from "./pages/Register";
 import UsersManagement from "./pages/UsersManagement";
+import CustomerProfile from "./pages/CustomerProfile";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
 
         <Route path="/register" element={<Register />} />
         <Route path="/admin/users" element={<UsersManagement />} />
+        <Route path="/customer/profile" element={<CustomerProfile />} />
       </Routes>
     </BrowserRouter>
   );

@@ -28,6 +28,16 @@ class Booking(db.Model):
         nullable=False
     )
 
+    schedule_id = db.Column(
+    db.BigInteger,
+    db.ForeignKey(
+        "tour_schedules.schedule_id",
+        ondelete="SET NULL"
+    ),
+    nullable=True,
+    index=True
+)
+
     booking_date = db.Column(
         db.DateTime,
         nullable=False,
@@ -116,6 +126,11 @@ class Booking(db.Model):
         "TourPackage",
         backref="bookings"
     )
+
+    schedule = db.relationship(
+    "TourSchedule",
+    backref="bookings"
+)
 
     status = db.relationship(
         "BookingStatus",

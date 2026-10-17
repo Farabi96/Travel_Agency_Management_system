@@ -1,4 +1,4 @@
-﻿ 
+
 from functools import wraps
 
 from flask import jsonify
@@ -111,6 +111,7 @@ def customer_access_allowed(customer):
         return True
 
     return customer.user_id == user.user_id
+
 
 
 def booking_access_allowed(booking):
