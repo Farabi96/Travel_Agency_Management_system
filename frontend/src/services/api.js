@@ -131,6 +131,28 @@ export async function getScheduleAvailability(scheduleId) {
 }
 
 
+export async function createSchedule(scheduleData) {
+  return authenticatedRequest("/schedules/", {
+    method: "POST",
+    body: JSON.stringify(scheduleData),
+  });
+}
+
+export async function updateSchedule(scheduleId, scheduleData) {
+  return authenticatedRequest(`/schedules/${scheduleId}`, {
+    method: "PUT",
+    body: JSON.stringify(scheduleData),
+  });
+}
+
+export async function cancelSchedule(scheduleId) {
+  return authenticatedRequest(`/schedules/${scheduleId}`, {
+    method: "DELETE",
+  });
+}
+
+
+
 
 // ------------------------------
 // LOGIN
