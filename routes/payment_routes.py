@@ -1,119 +1,24 @@
-﻿from flask import Blueprint, jsonify, request
+﻿from decimal import Decimal, InvalidOperation
+from uuid import uuid4
+from datetime import datetime
+
+from flask import Blueprint, current_app, jsonify, request
+from flask_jwt_extended import jwt_required
+from sqlalchemy import text
 
 from extensions import db
 from models import (
-    Payment,
-    PaymentMethod,
-    PaymentStatus,
-    Booking,
-    Invoice
+    Payment, PaymentMethod, PaymentStatus, Booking, Invoice, InvoiceItem, Customer
 )
+from auth_utils import get_current_user, role_required, is_staff_or_admin
+
+payment_bp = Blueprint("payment", __name__, url_prefix="/api/payments")
+CENT = Decimal("0.01")
+ZERO = Decimal("0.00")
 
 
-payment_bp = Blueprint(
-    "payment",
-    __name__,
-    url_prefix="/api/payments"
-)
-
-
-# =========================
-# GET ALL PAYMENT METHODS
-# =========================
-
-@payment_bp.route("/methods", methods=["GET"])
-def get_payment_methods():
-
-    methods = PaymentMethod.query.order_by(
-        PaymentMethod.payment_method_id.asc()
-    ).all()
-
-    return jsonify([
-        {
-            "payment_method_id": method.payment_method_id,
-            "method_name": method.method_name,
-            "description": method.description,
-            "is_online": bool(method.is_online),
-            "status": method.status
-        }
-        for method in methods
-    ])
-
-
-# =========================
-# GET ALL PAYMENT STATUSES
-# =========================
-
-@payment_bp.route("/statuses", methods=["GET"])
-def get_payment_statuses():
-
-    statuses = PaymentStatus.query.order_by(
-        PaymentStatus.payment_status_id.asc()
-    ).all()
-
-    return jsonify([
-        {
-            "payment_status_id": status.payment_status_id,
-            "status_name": status.status_name,
-            "description": status.description
-        }
-        for status in statuses
-    ])
-
-
-# =========================
-# GET ALL PAYMENTS
-# =========================
-
-@payment_bp.route("/", methods=["GET"])
-def get_payments():
-
-    payments = Payment.query.order_by(
-        Payment.payment_id.desc()
-    ).all()
-
-    return jsonify([
-        {
-            "payment_id": payment.payment_id,
-            "booking_id": payment.booking_id,
-            "invoice_id": payment.invoice_id,
-            "transaction_reference": payment.transaction_reference,
-            "gateway_transaction_id": payment.gateway_transaction_id,
-            "amount": float(payment.amount),
-            "payment_method_id": payment.payment_method_id,
-            "payment_method": (
-                payment.payment_method.method_name
-                if payment.payment_method
-                else None
-            ),
-            "payment_status_id": payment.payment_status_id,
-            "payment_status": (
-                payment.payment_status.status_name
-                if payment.payment_status
-                else None
-            ),
-            "payment_date": (
-                payment.payment_date.isoformat()
-                if payment.payment_date
-                else None
-            ),
-            "received_by": payment.received_by,
-            "notes": payment.notes
-        }
-        for payment in payments
-    ])
-
-
-# =========================
-# GET SINGLE PAYMENT
-# =========================
-
-@payment_bp.route("/<int:payment_id>", methods=["GET"])
-def get_payment(payment_id):
-
-    payment = Payment.query.get_or_404(payment_id)
-
-    return jsonify({
+def payment_to_dict(payment):
+    return {
         "payment_id": payment.payment_id,
         "booking_id": payment.booking_id,
         "invoice_id": payment.invoice_id,
@@ -121,293 +26,396 @@ def get_payment(payment_id):
         "gateway_transaction_id": payment.gateway_transaction_id,
         "amount": float(payment.amount),
         "payment_method_id": payment.payment_method_id,
-        "payment_method": (
-            payment.payment_method.method_name
-            if payment.payment_method
-            else None
-        ),
+        "payment_method": payment.payment_method.method_name if payment.payment_method else None,
         "payment_status_id": payment.payment_status_id,
-        "payment_status": (
-            payment.payment_status.status_name
-            if payment.payment_status
-            else None
-        ),
-        "payment_date": (
-            payment.payment_date.isoformat()
-            if payment.payment_date
-            else None
-        ),
+        "payment_status": payment.payment_status.status_name if payment.payment_status else None,
+        "payment_date": payment.payment_date.isoformat() if payment.payment_date else None,
         "received_by": payment.received_by,
-        "notes": payment.notes
-    })
+        "notes": payment.notes,
+    }
 
 
-# =========================
-# GET PAYMENTS BY BOOKING
-# =========================
+def customer_for_user(user):
+    return Customer.query.filter_by(user_id=user.user_id).first()
+
+
+def can_access_booking(user, booking):
+    if is_staff_or_admin(user):
+        return True
+    customer = customer_for_user(user)
+    return bool(customer and booking.customer_id == customer.customer_id)
+
+
+def find_payment_status(name):
+    return PaymentStatus.query.filter_by(status_name=name).first()
+
+
+def paid_amount_for_booking(booking_id):
+    status = find_payment_status("PAID")
+    if not status:
+        raise ValueError("PAID payment status is not configured")
+    total = db.session.query(db.func.coalesce(db.func.sum(Payment.amount), 0)).filter(
+        Payment.booking_id == booking_id,
+        Payment.payment_status_id == status.payment_status_id,
+    ).scalar()
+    return Decimal(str(total)).quantize(CENT)
+
+
+def applicable_total(booking, invoice=None):
+    return Decimal(str(invoice.total_amount if invoice else booking.total_amount)).quantize(CENT)
+
+
+def outstanding_amount(booking, invoice=None):
+    return max(ZERO, applicable_total(booking, invoice) - paid_amount_for_booking(booking.booking_id))
+
+
+def get_or_create_invoice(booking, user_id=None):
+    """Create the one invoice for a booking using only server-side booking values."""
+    invoice = Invoice.query.filter_by(booking_id=booking.booking_id).first()
+    if invoice:
+        return invoice
+
+    year = datetime.now().year
+    seq = db.session.execute(text("SELECT nextval('invoice_number_seq')")).scalar_one()
+    invoice = Invoice(
+        invoice_number=f"INV-{year}-{seq:06d}",
+        booking_id=booking.booking_id,
+        subtotal=booking.subtotal,
+        discount_amount=booking.discount_amount,
+        tax_amount=booking.tax_amount,
+        total_amount=booking.total_amount,
+        invoice_status="ISSUED",
+        generated_by=user_id,
+    )
+    db.session.add(invoice)
+    db.session.flush()
+
+    travelers = int(booking.number_of_travelers or 1)
+    package_name = booking.package.package_name if booking.package else f"Tour booking #{booking.booking_id}"
+    unit_price = (Decimal(str(booking.subtotal)) / Decimal(travelers)).quantize(CENT)
+    line_total = (unit_price * travelers).quantize(CENT)
+    db.session.add(InvoiceItem(
+        invoice_id=invoice.invoice_id,
+        description=package_name,
+        quantity=Decimal(travelers),
+        unit_price=unit_price,
+        line_total=line_total,
+    ))
+    return invoice
+
+
+def payment_summary_for_booking(booking, invoice=None):
+    invoice = invoice or Invoice.query.filter_by(booking_id=booking.booking_id).first()
+    total = applicable_total(booking, invoice)
+    paid = paid_amount_for_booking(booking.booking_id)
+    balance = max(ZERO, total - paid)
+    pending_status = find_payment_status("PENDING")
+    pending = []
+    if pending_status:
+        pending = [payment_to_dict(p) for p in Payment.query.filter_by(
+            booking_id=booking.booking_id,
+            payment_status_id=pending_status.payment_status_id,
+        ).order_by(Payment.payment_id.desc()).all()]
+    return {
+        "total_amount": float(total), "paid_amount": float(paid),
+        "balance": float(balance), "pending_payments": pending,
+        "payment_summary": "PAID" if balance <= ZERO else ("PARTIALLY_PAID" if paid > ZERO else ("PENDING" if pending else "UNPAID")),
+    }
+
+
+@payment_bp.route("/methods", methods=["GET"])
+def get_payment_methods():
+    methods = PaymentMethod.query.filter_by(status="ACTIVE").order_by(PaymentMethod.payment_method_id.asc()).all()
+    return jsonify([{
+        "payment_method_id": m.payment_method_id,
+        "method_name": m.method_name,
+        "description": m.description,
+        "is_online": bool(m.is_online),
+        "available_for_request": not bool(m.is_online),
+    } for m in methods]), 200
+
+
+@payment_bp.route("/statuses", methods=["GET"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_payment_statuses():
+    return jsonify([{
+        "payment_status_id": s.payment_status_id,
+        "status_name": s.status_name,
+        "description": s.description,
+    } for s in PaymentStatus.query.order_by(PaymentStatus.payment_status_id.asc()).all()]), 200
+
+
+@payment_bp.route("/mine", methods=["GET"])
+@role_required("CUSTOMER")
+def get_my_payments():
+    user = get_current_user()
+    customer = customer_for_user(user) if user else None
+    if not customer:
+        return jsonify({"error": "Customer profile not found"}), 404
+    payments = Payment.query.join(Booking, Payment.booking_id == Booking.booking_id).filter(
+        Booking.customer_id == customer.customer_id
+    ).order_by(Payment.payment_id.desc()).all()
+    return jsonify([payment_to_dict(p) for p in payments]), 200
+
+
+@payment_bp.route("/", methods=["GET"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_payments():
+    return jsonify([payment_to_dict(p) for p in Payment.query.order_by(Payment.payment_id.desc()).all()]), 200
+
+
+@payment_bp.route("/overview", methods=["GET"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_payment_overview():
+    results = []
+    for booking in Booking.query.order_by(Booking.booking_id.desc()).all():
+        invoice = Invoice.query.filter_by(booking_id=booking.booking_id).first()
+        summary = payment_summary_for_booking(booking, invoice)
+        customer = booking.customer
+        results.append({
+            "booking_id": booking.booking_id,
+            "booking_reference": booking.booking_reference,
+            "customer_name": f"{customer.first_name} {customer.last_name or ''}".strip() if customer else "Unknown customer",
+            "package_name": booking.package.package_name if booking.package else None,
+            "travel_date": booking.travel_date.isoformat() if booking.travel_date else None,
+            "booking_status": booking.status.status_name if booking.status else None,
+            "invoice_id": invoice.invoice_id if invoice else None,
+            "invoice_number": invoice.invoice_number if invoice else None,
+            **summary,
+        })
+    return jsonify(results), 200
+
+
+@payment_bp.route("/<int:payment_id>", methods=["GET"])
+@jwt_required()
+def get_payment(payment_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 403
+    payment = Payment.query.get_or_404(payment_id)
+    if not can_access_booking(user, payment.booking):
+        return jsonify({"error": "Access denied"}), 403
+    return jsonify(payment_to_dict(payment)), 200
+
 
 @payment_bp.route("/booking/<int:booking_id>", methods=["GET"])
+@jwt_required()
 def get_booking_payments(booking_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 403
+    booking = Booking.query.get_or_404(booking_id)
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+    payments = Payment.query.filter_by(booking_id=booking_id).order_by(Payment.payment_id.desc()).all()
+    return jsonify([payment_to_dict(p) for p in payments]), 200
 
-    Booking.query.get_or_404(booking_id)
-
-    payments = Payment.query.filter_by(
-        booking_id=booking_id
-    ).order_by(
-        Payment.payment_id.desc()
-    ).all()
-
-    return jsonify([
-        {
-            "payment_id": payment.payment_id,
-            "booking_id": payment.booking_id,
-            "invoice_id": payment.invoice_id,
-            "transaction_reference": payment.transaction_reference,
-            "amount": float(payment.amount),
-            "payment_method_id": payment.payment_method_id,
-            "payment_method": (
-                payment.payment_method.method_name
-                if payment.payment_method
-                else None
-            ),
-            "payment_status_id": payment.payment_status_id,
-            "payment_status": (
-                payment.payment_status.status_name
-                if payment.payment_status
-                else None
-            ),
-            "payment_date": (
-                payment.payment_date.isoformat()
-                if payment.payment_date
-                else None
-            ),
-            "received_by": payment.received_by,
-            "notes": payment.notes
-        }
-        for payment in payments
-    ])
-
-
-# =========================
-# GET PAYMENTS BY INVOICE
-# =========================
 
 @payment_bp.route("/invoice/<int:invoice_id>", methods=["GET"])
+@jwt_required()
 def get_invoice_payments(invoice_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 403
+    invoice = Invoice.query.get_or_404(invoice_id)
+    booking = Booking.query.get_or_404(invoice.booking_id)
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+    payments = Payment.query.filter_by(booking_id=booking.booking_id).order_by(Payment.payment_id.desc()).all()
+    return jsonify([payment_to_dict(p) for p in payments]), 200
 
-    Invoice.query.get_or_404(invoice_id)
-
-    payments = Payment.query.filter_by(
-        invoice_id=invoice_id
-    ).order_by(
-        Payment.payment_id.desc()
-    ).all()
-
-    return jsonify([
-        {
-            "payment_id": payment.payment_id,
-            "booking_id": payment.booking_id,
-            "invoice_id": payment.invoice_id,
-            "transaction_reference": payment.transaction_reference,
-            "gateway_transaction_id": payment.gateway_transaction_id,
-            "amount": float(payment.amount),
-            "payment_method_id": payment.payment_method_id,
-            "payment_method": (
-                payment.payment_method.method_name
-                if payment.payment_method
-                else None
-            ),
-            "payment_status_id": payment.payment_status_id,
-            "payment_status": (
-                payment.payment_status.status_name
-                if payment.payment_status
-                else None
-            ),
-            "payment_date": (
-                payment.payment_date.isoformat()
-                if payment.payment_date
-                else None
-            ),
-            "received_by": payment.received_by,
-            "notes": payment.notes
-        }
-        for payment in payments
-    ])
-
-
-# =========================
-# CREATE PAYMENT
-# =========================
 
 @payment_bp.route("/", methods=["POST"])
+@role_required("CUSTOMER")
 def create_payment():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 403
+    data = request.get_json(silent=True) or {}
+    booking_id = data.get("booking_id")
+    method_id = data.get("payment_method_id")
+    reference = (data.get("transaction_reference") or "").strip() if isinstance(data.get("transaction_reference") or "", str) else ""
+    raw_amount = data.get("amount")
 
-    data = request.get_json()
+    if not booking_id or not method_id or raw_amount is None:
+        return jsonify({"error": "booking_id, payment_method_id, and amount are required"}), 400
+    try:
+        amount = Decimal(str(raw_amount)).quantize(CENT)
+        if not amount.is_finite() or amount <= ZERO:
+            raise InvalidOperation
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({"error": "Amount must be a valid positive number"}), 400
 
-    if not data:
-        return jsonify({
-            "error": "Request body is required"
-        }), 400
-
-    required_fields = [
-        "booking_id",
-        "transaction_reference",
-        "amount",
-        "payment_method_id",
-        "payment_status_id"
-    ]
-
-    for field in required_fields:
-        if field not in data:
-            return jsonify({
-                "error": f"Missing field: {field}"
-            }), 400
-
-    booking = Booking.query.get(data["booking_id"])
-
+    # Lock the booking row to serialize requests for the same booking on PostgreSQL.
+    booking = Booking.query.filter_by(booking_id=booking_id).with_for_update().first()
     if not booking:
-        return jsonify({
-            "error": "Booking not found"
-        }), 404
-
-    payment_method = PaymentMethod.query.get(
-        data["payment_method_id"]
-    )
-
-    if not payment_method:
-        return jsonify({
-            "error": "Payment method not found"
-        }), 404
-
-    if payment_method.status != "ACTIVE":
-        return jsonify({
-            "error": "Payment method is inactive"
-        }), 400
-
-    payment_status = PaymentStatus.query.get(
-        data["payment_status_id"]
-    )
-
-    if not payment_status:
-        return jsonify({
-            "error": "Payment status not found"
-        }), 404
-
-    existing_payment = Payment.query.filter_by(
-        transaction_reference=data["transaction_reference"]
-    ).first()
-
-    if existing_payment:
-        return jsonify({
-            "error": "Transaction reference already exists",
-            "payment_id": existing_payment.payment_id
-        }), 409
-
-    invoice_id = data.get("invoice_id")
-
-    if invoice_id is not None:
-
-        invoice = Invoice.query.get(invoice_id)
-
-        if not invoice:
-            return jsonify({
-                "error": "Invoice not found"
-            }), 404
-
-        if invoice.booking_id != booking.booking_id:
-            return jsonify({
-                "error": "Invoice does not belong to this booking"
-            }), 400
+        return jsonify({"error": "Booking not found"}), 404
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+    method = db.session.get(PaymentMethod, method_id)
+    if not method or method.status != "ACTIVE":
+        return jsonify({"error": "Invalid or inactive payment method"}), 400
+    if method.is_online:
+        return jsonify({"error": "Online payments are not available yet"}), 400
+    if method.method_name.upper() != "CASH" and not reference:
+        return jsonify({"error": "Enter the actual bank transaction/reference ID"}), 400
+    if not reference and method.method_name.upper() == "CASH":
+        reference = f"CASH-REQ-{uuid4().hex.upper()}"
+    if len(reference) > 100:
+        return jsonify({"error": "Transaction reference must be 100 characters or fewer"}), 400
+    if Payment.query.filter_by(transaction_reference=reference).first():
+        return jsonify({"error": "This transaction/reference ID has already been submitted"}), 409
 
     try:
+        invoice = Invoice.query.filter_by(booking_id=booking.booking_id).first()
+        if invoice and invoice.invoice_status in ("VOID", "REFUNDED"):
+            return jsonify({"error": "This invoice cannot receive payments"}), 400
 
+        pending = find_payment_status("PENDING")
+        if not pending:
+            return jsonify({"error": "PENDING payment status is not configured"}), 500
+        existing_pending = Payment.query.filter_by(
+            booking_id=booking.booking_id,
+            payment_status_id=pending.payment_status_id,
+        ).first()
+        if existing_pending:
+            return jsonify({"error": "A payment request is already awaiting verification for this booking. Wait for staff to verify or fail it before submitting another."}), 409
+
+        # Validate against the final invoice total if present, otherwise booking total.
+        existing_invoice = invoice
+        total = applicable_total(booking, existing_invoice)
+        paid = paid_amount_for_booking(booking.booking_id)
+        balance = max(ZERO, total - paid)
+        if balance <= ZERO:
+            return jsonify({"error": "No outstanding balance remains"}), 400
+        minimum_first_payment = (total * Decimal("0.50")).quantize(CENT)
+        if paid <= ZERO and amount < minimum_first_payment:
+            return jsonify({"error": f"The first payment must be at least 50% of the total ({minimum_first_payment:.2f})"}), 400
+        if amount > balance:
+            return jsonify({"error": f"Amount exceeds the outstanding balance ({balance:.2f})"}), 400
+
+        # Create invoice only after validation, then attach the request to it.
+        invoice = get_or_create_invoice(booking, user.user_id)
         payment = Payment(
             booking_id=booking.booking_id,
-            invoice_id=invoice_id,
-            transaction_reference=data["transaction_reference"],
-            gateway_transaction_id=data.get(
-                "gateway_transaction_id"
-            ),
-            amount=data["amount"],
-            payment_method_id=data["payment_method_id"],
-            payment_status_id=data["payment_status_id"],
-            received_by=data.get("received_by"),
-            notes=data.get("notes")
+            invoice_id=invoice.invoice_id,
+            transaction_reference=reference,
+            amount=amount,
+            payment_method_id=method.payment_method_id,
+            payment_status_id=pending.payment_status_id,
+            notes=(data.get("notes") or "Customer-submitted payment awaiting staff verification").strip()[:2000],
         )
-
         db.session.add(payment)
         db.session.commit()
-
-        return jsonify({
-            "message": "Payment created successfully",
-            "payment_id": payment.payment_id,
-            "transaction_reference": payment.transaction_reference,
-            "booking_id": payment.booking_id,
-            "invoice_id": payment.invoice_id,
-            "amount": float(payment.amount)
-        }), 201
-
-    except Exception as e:
-
+        return jsonify({"message": "Payment request submitted and awaiting verification", "payment": payment_to_dict(payment), "invoice_id": invoice.invoice_id}), 201
+    except Exception:
         db.session.rollback()
-
-        return jsonify({
-            "error": str(e)
-        }), 500
+        current_app.logger.exception("Customer payment request creation failed")
+        return jsonify({"error": "Unable to create payment request. Check the Flask server console for the detailed error."}), 500
 
 
-# =========================
-# UPDATE PAYMENT STATUS
-# =========================
+@payment_bp.route("/record", methods=["POST"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def record_offline_payment():
+    user = get_current_user()
+    data = request.get_json(silent=True) or {}
+    booking_id = data.get("booking_id")
+    method_id = data.get("payment_method_id")
+    raw_amount = data.get("amount")
+    reference = (data.get("transaction_reference") or "").strip()
+    notes = (data.get("notes") or "").strip()
 
-@payment_bp.route("/<int:payment_id>/status", methods=["PUT"])
-def update_payment_status(payment_id):
+    if not booking_id or not method_id or raw_amount is None:
+        return jsonify({"error": "booking_id, payment_method_id, and amount are required"}), 400
+    try:
+        amount = Decimal(str(raw_amount)).quantize(CENT)
+        if not amount.is_finite() or amount <= ZERO:
+            raise InvalidOperation
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({"error": "Amount must be a valid positive number"}), 400
 
-    payment = Payment.query.get_or_404(payment_id)
-
-    data = request.get_json()
-
-    if not data or "payment_status_id" not in data:
-        return jsonify({
-            "error": "payment_status_id is required"
-        }), 400
-
-    new_status_id = data["payment_status_id"]
-
-    status = PaymentStatus.query.get(
-        new_status_id
-    )
-
-    if not status:
-        return jsonify({
-            "error": "Invalid payment_status_id"
-        }), 400
-
-    if payment.payment_status_id == new_status_id:
-        return jsonify({
-            "error": "Payment already has this status"
-        }), 400
+    booking = db.session.get(Booking, booking_id)
+    method = db.session.get(PaymentMethod, method_id)
+    paid_status = find_payment_status("PAID")
+    if not booking:
+        return jsonify({"error": "Booking not found"}), 404
+    if not method or method.status != "ACTIVE" or method.is_online:
+        return jsonify({"error": "Choose an active offline payment method"}), 400
+    if not paid_status:
+        return jsonify({"error": "PAID payment status is not configured"}), 500
 
     try:
-
-        old_status_id = payment.payment_status_id
-
-        payment.payment_status_id = new_status_id
-
+        invoice = Invoice.query.filter_by(booking_id=booking.booking_id).first()
+        if invoice and invoice.invoice_status in ("VOID", "REFUNDED"):
+            return jsonify({"error": "This invoice cannot receive payments"}), 400
+        balance = outstanding_amount(booking, invoice)
+        if balance <= ZERO:
+            return jsonify({"error": "No outstanding balance remains"}), 400
+        if amount > balance:
+            return jsonify({"error": f"Amount exceeds the outstanding balance ({balance:.2f})"}), 400
+        invoice = get_or_create_invoice(booking, user.user_id)
+        if not reference:
+            reference = f"OFFLINE-{uuid4().hex.upper()}"
+        if len(reference) > 100:
+            return jsonify({"error": "Reference must be 100 characters or fewer"}), 400
+        if Payment.query.filter_by(transaction_reference=reference).first():
+            return jsonify({"error": "That transaction/reference ID already exists"}), 409
+        payment = Payment(
+            booking_id=booking.booking_id,
+            invoice_id=invoice.invoice_id,
+            transaction_reference=reference,
+            amount=amount,
+            payment_method_id=method.payment_method_id,
+            payment_status_id=paid_status.payment_status_id,
+            received_by=user.user_id,
+            notes=notes or "Offline payment recorded by staff",
+        )
+        db.session.add(payment)
+        db.session.flush()
+        update_invoice_status(booking.booking_id, invoice)
         db.session.commit()
-
-        return jsonify({
-            "message": "Payment status updated successfully",
-            "payment_id": payment.payment_id,
-            "old_status_id": old_status_id,
-            "new_status_id": new_status_id,
-            "new_status": status.status_name
-        })
-
-    except Exception as e:
-
+        return jsonify({"message": "Offline payment recorded", "payment": payment_to_dict(payment)}), 201
+    except Exception:
         db.session.rollback()
+        return jsonify({"error": "Unable to record offline payment. Check the server log for details."}), 500
 
-        return jsonify({
-            "error": str(e)
-        }), 500
+
+def update_invoice_status(booking_id, invoice):
+    if not invoice:
+        return
+    paid = paid_amount_for_booking(booking_id)
+    total = Decimal(str(invoice.total_amount)).quantize(CENT)
+    if paid >= total:
+        invoice.invoice_status = "PAID"
+    elif paid > ZERO:
+        invoice.invoice_status = "PARTIALLY_PAID"
+    else:
+        invoice.invoice_status = "ISSUED"
+
+
+@payment_bp.route("/<int:payment_id>/status", methods=["PUT"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def update_payment_status(payment_id):
+    user = get_current_user()
+    payment = Payment.query.get_or_404(payment_id)
+    data = request.get_json(silent=True) or {}
+    status_name = data.get("status_name")
+    if status_name not in {"PAID", "FAILED", "REFUNDED"}:
+        return jsonify({"error": "status_name must be PAID, FAILED, or REFUNDED"}), 400
+    current = payment.payment_status.status_name if payment.payment_status else None
+    if current != "PENDING" and not (current == "PAID" and status_name == "REFUNDED"):
+        return jsonify({"error": f"Cannot change payment from {current} to {status_name}"}), 400
+    new_status = find_payment_status(status_name)
+    if not new_status:
+        return jsonify({"error": f"{status_name} payment status is not configured"}), 500
+    try:
+        payment.payment_status_id = new_status.payment_status_id
+        if status_name == "PAID":
+            payment.received_by = user.user_id
+        invoice = Invoice.query.filter_by(booking_id=payment.booking_id).first()
+        update_invoice_status(payment.booking_id, invoice)
+        db.session.commit()
+        return jsonify({"message": "Payment status updated successfully", "payment": payment_to_dict(payment)}), 200
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Unable to update payment status"}), 500

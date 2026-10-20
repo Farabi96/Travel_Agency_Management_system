@@ -33,6 +33,13 @@ export default function Navbar() {
     CUSTOMER: "Customer",
   };
 
+  const canManageInvoices =
+    isLoggedIn &&
+    ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
+ const canManagePayments =
+  isLoggedIn &&
+  ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
+
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
@@ -87,6 +94,33 @@ export default function Navbar() {
                   My Profile
                 </Link>
               )}
+{user.role_name === "CUSTOMER" && (
+  <Link
+    to="/customer/bookings"
+    className="text-sm font-medium text-slate-700 hover:text-teal-700"
+  >
+    My Bookings
+  </Link>
+)}
+
+
+              {canManageInvoices && (
+                <Link
+                  to="/invoices"
+                  className="text-sm font-medium text-slate-700 hover:text-teal-700"
+                >
+                  Invoices
+                </Link>
+              )}
+
+              {canManagePayments && (
+  <Link
+    to="/payments"
+    className="text-sm font-medium text-slate-700 hover:text-teal-700"
+  >
+    Payments
+  </Link>
+)}
 
               <Link
                 to="/dashboard"
@@ -169,6 +203,35 @@ export default function Navbar() {
                   My Profile
                 </Link>
               )}
+              {user.role_name === "CUSTOMER" && (
+  <Link
+    className="block font-medium text-teal-700"
+    to="/customer/bookings"
+    onClick={() => setMenuOpen(false)}
+  >
+    My Bookings
+  </Link>
+)}
+
+              
+              {canManageInvoices && (
+                <Link
+                  className="block font-medium text-teal-700"
+                  to="/invoices"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Invoices
+                </Link>
+              )}
+
+              {canManagePayments && (
+  <Link
+    to="/payments"
+    className="text-sm font-medium text-slate-700 hover:text-teal-700"
+  >
+    Payments
+  </Link>
+)}
 
               <Link
                 className="block text-slate-700"

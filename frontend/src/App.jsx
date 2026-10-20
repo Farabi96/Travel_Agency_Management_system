@@ -10,11 +10,14 @@ import Dashboard from "./pages/Dashboard";
 import Register from "./pages/Register";
 import UsersManagement from "./pages/UsersManagement";
 import CustomerProfile from "./pages/CustomerProfile";
+import MyBookings from "./pages/MyBookings";
+import Invoices from "./pages/Invoices";
+import PaymentManagement from "./pages/PaymentManagement";
 
 function App() {
   return (
     <BrowserRouter>
-      <Navbar />
+      <Navbar /> 
 
       <Routes>
         <Route path="/" element={<Home />} />
@@ -26,6 +29,9 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/admin/users" element={<UsersManagement />} />
         <Route path="/customer/profile" element={<CustomerProfile />} />
+        <Route path="/customer/bookings" element={<MyBookings />} />
+        <Route path="/invoices" element={<Invoices />} />
+        <Route path="/payments" element={<PaymentManagement />} />
       </Routes>
     </BrowserRouter>
   );

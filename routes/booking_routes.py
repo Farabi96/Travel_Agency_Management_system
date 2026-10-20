@@ -1,14 +1,18 @@
+﻿import uuid
+from decimal import Decimal
 from datetime import date, datetime
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import jwt_required
 from sqlalchemy import select
-from models import TourPackage, TourSchedule
+from models import TourPackage, TourSchedule, Customer
 from models import (
     Booking,
     BookingTraveler,
     BookingStatus,
-    BookingStatusHistory
+    BookingStatusHistory,
+    Payment,
+    PaymentStatus,
 )
 from extensions import db
 from auth_utils import (
@@ -23,6 +27,132 @@ booking_bp = Blueprint(
     __name__,
     url_prefix="/api/bookings"
 )
+
+
+# =========================================================
+# CUSTOMER: LIST OWN BOOKINGS
+# =========================================================
+
+@booking_bp.route("/mine", methods=["GET"])
+@jwt_required()
+def get_my_bookings():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "User not found or account is not active"}), 403
+    if not user.role or user.role.role_name != "CUSTOMER":
+        return jsonify({"error": "This endpoint is for customer accounts only"}), 403
+
+    customer = Customer.query.filter_by(user_id=user.user_id).first()
+    if not customer:
+        return jsonify({"error": "Customer profile not found"}), 404
+
+    bookings = Booking.query.filter_by(customer_id=customer.customer_id).order_by(
+        Booking.booking_date.desc(), Booking.booking_id.desc()
+    ).all()
+
+    return jsonify([
+        {
+            "booking_id": booking.booking_id,
+            "booking_reference": booking.booking_reference,
+            "package_id": booking.package_id,
+            "package_name": booking.package.package_name if booking.package else "Tour package",
+            "schedule_id": booking.schedule_id,
+            "departure_datetime": (
+                booking.schedule.departure_datetime.isoformat()
+                if booking.schedule and booking.schedule.departure_datetime else None
+            ),
+            "return_datetime": (
+                booking.schedule.return_datetime.isoformat()
+                if booking.schedule and booking.schedule.return_datetime else None
+            ),
+            "travel_date": booking.travel_date.isoformat() if booking.travel_date else None,
+            "number_of_travelers": booking.number_of_travelers,
+            "total_amount": float(booking.total_amount),
+            "status_id": booking.status_id,
+            "status": booking.status.status_name if booking.status else "Unknown",
+            "booking_date": booking.booking_date.isoformat() if booking.booking_date else None,
+        }
+        for booking in bookings
+    ])
+
+
+# =========================================================
+# CUSTOMER: CANCEL OWN BOOKING (NO AUTOMATIC REFUND)
+# =========================================================
+
+@booking_bp.route("/<int:booking_id>/cancel", methods=["POST"])
+@jwt_required()
+def cancel_my_booking(booking_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "User not found or account is not active"}), 403
+    if not user.role or user.role.role_name != "CUSTOMER":
+        return jsonify({"error": "Only customers can cancel bookings from this endpoint"}), 403
+
+    customer = Customer.query.filter_by(user_id=user.user_id).first()
+    if not customer:
+        return jsonify({"error": "Customer profile not found"}), 404
+
+    booking = Booking.query.filter_by(
+        booking_id=booking_id, customer_id=customer.customer_id
+    ).first()
+    if not booking:
+        return jsonify({"error": "Booking not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    if data.get("terms_accepted") is not True:
+        return jsonify({"error": "You must accept the cancellation terms"}), 400
+
+    current_name = booking.status.status_name.upper() if booking.status else ""
+    if current_name in {"CANCELLED", "CANCELED"}:
+        return jsonify({"error": "This booking is already cancelled"}), 400
+    if current_name in {"COMPLETED", "FINISHED"}:
+        return jsonify({"error": "A completed booking cannot be cancelled"}), 400
+
+    try:
+        cancelled_status = BookingStatus.query.filter(
+            db.func.upper(BookingStatus.status_name).in_(["CANCELLED", "CANCELED"])
+        ).first()
+        if not cancelled_status:
+            cancelled_status = BookingStatus(
+                status_name="CANCELLED",
+                description="Booking cancelled by customer; refunds are handled separately"
+            )
+            db.session.add(cancelled_status)
+            db.session.flush()
+
+        old_status_id = booking.status_id
+        booking.status_id = cancelled_status.status_id
+        db.session.add(BookingStatusHistory(
+            booking_id=booking.booking_id,
+            old_status_id=old_status_id,
+            new_status_id=cancelled_status.status_id,
+            changed_by=user.user_id,
+            change_reason="Customer cancellation accepted; refund is not automatic"
+        ))
+
+        pending_status = PaymentStatus.query.filter_by(status_name="PENDING").first()
+        failed_status = PaymentStatus.query.filter_by(status_name="FAILED").first()
+        if pending_status and failed_status:
+            Payment.query.filter_by(
+                booking_id=booking.booking_id,
+                payment_status_id=pending_status.payment_status_id,
+            ).update(
+                {Payment.payment_status_id: failed_status.payment_status_id,
+                 Payment.notes: db.func.coalesce(Payment.notes, "") + "\nClosed because booking was cancelled."},
+                synchronize_session=False,
+            )
+
+        db.session.commit()
+        return jsonify({
+            "message": "Booking cancelled. Refunds are not issued automatically and may be handled separately later.",
+            "booking_id": booking.booking_id,
+            "status": cancelled_status.status_name,
+        }), 200
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Customer booking cancellation failed")
+        return jsonify({"error": "Could not cancel booking. Check the server log for details."}), 500
 
 
 # =========================================================
@@ -95,150 +225,206 @@ def get_booking(booking_id):
 # STAFF / ADMIN: ANY CUSTOMER
 # =========================================================
 
+ 
 # =========================
 # CREATE BOOKING
+# CUSTOMER ONLY
 # =========================
 
 @booking_bp.route("/", methods=["POST"])
+@jwt_required()
 def create_booking():
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({"error": "A valid JSON object is required"}), 400
 
-    required_fields = [
-        "booking_reference",
-        "customer_id",
-        "package_id",
-        "travel_date",
-        "number_of_travelers",
-        "subtotal",
-        "total_amount",
-        "status_id"
-    ]
+    # 1. Authenticate the current user
+    user = get_current_user()
 
-    for field in required_fields:
-        if field not in data:
-            return jsonify({"error": f"Missing field: {field}"}), 400
+    if not user:
+        return jsonify({
+            "error": "User not found or account is not active"
+        }), 403
 
+    # 2. Only customers can create their own bookings
+    if not user.role or user.role.role_name != "CUSTOMER":
+        return jsonify({
+            "error": "Only customers can create bookings"
+        }), 403
+
+    # 3. Find the customer's profile
+    customer = Customer.query.filter_by(
+        user_id=user.user_id
+    ).first()
+
+    if not customer:
+        return jsonify({
+            "error": "Customer profile not found"
+        }), 404
+
+    # 4. Validate customer-provided fields
     try:
-        customer_id = int(data["customer_id"])
         package_id = int(data["package_id"])
+        schedule_id = int(data["schedule_id"])
         number_of_travelers = int(data["number_of_travelers"])
-        status_id = int(data["status_id"])
-        travel_date_value = date.fromisoformat(data["travel_date"])
 
-        if customer_id <= 0 or package_id <= 0:
+        if package_id <= 0 or schedule_id <= 0:
             raise ValueError("IDs must be positive")
 
         if number_of_travelers <= 0:
-            raise ValueError("number_of_travelers must be positive")
+            raise ValueError("Traveler count must be positive")
 
-        if status_id not in (1, 2, 3, 4):
-            raise ValueError("Invalid status_id")
-
-        subtotal = float(data["subtotal"])
-        total_amount = float(data["total_amount"])
-        discount_amount = float(data.get("discount_amount", 0))
-        tax_amount = float(data.get("tax_amount", 0))
-
-        if min(subtotal, total_amount, discount_amount, tax_amount) < 0:
-            raise ValueError("Amounts cannot be negative")
-
-    except (TypeError, ValueError, OverflowError):
-        return jsonify({"error": "Invalid booking data"}), 400
-
-    schedule_id = data.get("schedule_id")
-    schedule = None
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return jsonify({
+            "error": (
+                "Valid package_id, schedule_id, and "
+                "number_of_travelers are required"
+            )
+        }), 400
 
     try:
-        # Schedule selection is optional for backward compatibility.
-        if schedule_id is not None:
-            try:
-                schedule_id = int(schedule_id)
-            except (TypeError, ValueError):
-                return jsonify({"error": "Invalid schedule_id"}), 400
+        # 5. Lock the selected schedule to help prevent overbooking
+        schedule = db.session.execute(
+            select(TourSchedule)
+            .where(TourSchedule.schedule_id == schedule_id)
+            .with_for_update()
+        ).scalar_one_or_none()
 
-            # Lock the schedule row to prevent concurrent overbooking.
-            schedule = db.session.execute(
-                select(TourSchedule)
-                .where(TourSchedule.schedule_id == schedule_id)
-                .with_for_update()
-            ).scalar_one_or_none()
+        if not schedule:
+            return jsonify({"error": "Schedule not found"}), 404
 
-            if not schedule:
-                return jsonify({"error": "Schedule not found"}), 404
+        # 6. Validate the package
+        package = db.session.get(TourPackage, package_id)
 
-            if schedule.package_id != package_id:
-                return jsonify({
-                    "error": "The selected schedule does not belong to this package"
-                }), 400
+        if not package:
+            return jsonify({"error": "Package not found"}), 404
 
-            if schedule.schedule_status != "SCHEDULED":
-                return jsonify({
-                    "error": "This schedule is not available for booking"
-                }), 400
+        if schedule.package_id != package.package_id:
+            return jsonify({
+                "error": "The selected schedule does not belong to this package"
+            }), 400
 
-            if schedule.departure_datetime.date() != travel_date_value:
-                return jsonify({
-                    "error": "travel_date must match the selected schedule's departure date"
-                }), 400
+        # Your TourPackage model uses package_status, not is_active
+        if package.package_status != "ACTIVE":
+            return jsonify({
+                "error": "This package is not available for booking"
+            }), 400
 
-            # Count seats reserved by pending and confirmed bookings.
-            booked_seats = db.session.query(
-                db.func.coalesce(
-                    db.func.sum(Booking.number_of_travelers), 0
-                )
-            ).filter(
-                Booking.schedule_id == schedule_id,
-                Booking.status_id.in_([1, 2])
-            ).scalar()
+        # 7. Validate the schedule
+        if schedule.schedule_status != "SCHEDULED":
+            return jsonify({
+                "error": "This schedule is not available for booking"
+            }), 400
 
-            available_seats = max(
-                0, schedule.max_capacity - int(booked_seats or 0)
+        if not schedule.departure_datetime:
+            return jsonify({
+                "error": "The schedule has no departure date"
+            }), 400
+
+        departure = schedule.departure_datetime
+
+        if departure.date() <= date.today():
+            return jsonify({
+                "error": "Bookings are only available for future departures"
+            }), 400
+
+        if number_of_travelers > schedule.max_capacity:
+            return jsonify({
+                "error": "Traveler count exceeds schedule capacity"
+            }), 400
+
+        # 8. Check remaining seats.
+        # Status IDs 1 and 2 are assumed to mean pending and confirmed,
+        # matching the existing availability logic in your project.
+        booked_seats = db.session.query(
+            db.func.coalesce(
+                db.func.sum(Booking.number_of_travelers), 0
             )
+        ).filter(
+            Booking.schedule_id == schedule_id,
+            Booking.status_id.in_([1, 2])
+        ).scalar()
 
-            if number_of_travelers > available_seats:
-                db.session.rollback()
-                return jsonify({
-                    "error": "Not enough seats available",
-                    "available_seats": available_seats,
-                    "requested_seats": number_of_travelers
-                }), 409
+        available_seats = max(
+            0,
+            schedule.max_capacity - int(booked_seats or 0)
+        )
 
+        if number_of_travelers > available_seats:
+            db.session.rollback()
+            return jsonify({
+                "error": "Not enough seats available",
+                "available_seats": available_seats,
+                "requested_seats": number_of_travelers
+            }), 409
+
+        # 9. Retrieve the pending booking status
+        pending_status = db.session.get(BookingStatus, 1)
+
+        if not pending_status:
+            current_app.logger.error(
+                "Pending booking status ID 1 was not found"
+            )
+            return jsonify({
+                "error": "Pending booking status is not configured"
+            }), 500
+
+        # 10. Calculate the booking price on the backend
+        unit_price = Decimal(str(package.base_price))
+        subtotal = unit_price * number_of_travelers
+        discount_amount = Decimal("0.00")
+        tax_amount = Decimal("0.00")
+        total_amount = subtotal - discount_amount + tax_amount
+
+        # 11. Create the booking.
+        # Never accept the booking reference, customer ID, status,
+        # or price from the frontend.
         booking = Booking(
-            booking_reference=data["booking_reference"],
-            customer_id=customer_id,
-            package_id=package_id,
-            schedule_id=schedule_id,
-            travel_date=datetime.combine(
-                travel_date_value, datetime.min.time()
-            ),
+            booking_reference=f"BK-{uuid.uuid4().hex[:12].upper()}",
+            customer_id=customer.customer_id,
+            package_id=package.package_id,
+            schedule_id=schedule.schedule_id,
+            travel_date=departure.date(),
             number_of_travelers=number_of_travelers,
             subtotal=subtotal,
             discount_amount=discount_amount,
             tax_amount=tax_amount,
             total_amount=total_amount,
-            status_id=status_id,
+            status_id=pending_status.status_id,
             special_request=data.get("special_request"),
-            created_by=data.get("created_by")
+            created_by=user.user_id,
         )
 
         db.session.add(booking)
         db.session.commit()
 
+        # 12. Return the saved booking details
         return jsonify({
             "message": "Booking created successfully",
             "booking_id": booking.booking_id,
             "booking_reference": booking.booking_reference,
+            "package_id": booking.package_id,
             "schedule_id": booking.schedule_id,
-            "number_of_travelers": booking.number_of_travelers
+            "travel_date": (
+                booking.travel_date.isoformat()
+                if booking.travel_date else None
+            ),
+            "number_of_travelers": booking.number_of_travelers,
+            "subtotal": str(booking.subtotal),
+            "total_amount": str(booking.total_amount),
+            "status_id": booking.status_id,
+            "status_name": pending_status.status_name,
         }), 201
 
     except Exception:
         db.session.rollback()
         current_app.logger.exception("Booking creation failed")
-        return jsonify({"error": "Could not create booking"}), 500
+        return jsonify({
+            "error": "Could not create booking"
+        }), 500
+
+
 # =========================================================
 # GET BOOKING TRAVELERS
 # =========================================================

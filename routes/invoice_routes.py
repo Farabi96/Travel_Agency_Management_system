@@ -1,65 +1,60 @@
+ 
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, jsonify, request
+from flask_jwt_extended import jwt_required
+from sqlalchemy import text
 
+from auth_utils import (
+    get_current_user,
+    role_required,
+    is_staff_or_admin,
+)
 from extensions import db
-from models import Invoice, InvoiceItem, Booking
+from models import Invoice, InvoiceItem, Booking, Customer
 
 
 invoice_bp = Blueprint(
     "invoice",
     __name__,
-    url_prefix="/api/invoices"
+    url_prefix="/api/invoices",
 )
 
 
-# =========================
-# GET ALL INVOICES
-# =========================
+# =========================================================
+# ACCESS CONTROL
+# =========================================================
 
-@invoice_bp.route("/", methods=["GET"])
-def get_invoices():
+def can_access_booking(user, booking):
+    """Allow staff/admin access or access to the customer's own booking."""
+    if is_staff_or_admin(user):
+        return True
 
-    invoices = Invoice.query.order_by(
-        Invoice.invoice_id.desc()
-    ).all()
+    customer = Customer.query.filter_by(
+        user_id=user.user_id
+    ).first()
 
-    return jsonify([
-        {
-            "invoice_id": invoice.invoice_id,
-            "invoice_number": invoice.invoice_number,
-            "booking_id": invoice.booking_id,
-            "invoice_date": invoice.invoice_date.isoformat(),
-            "due_date": (
-                invoice.due_date.isoformat()
-                if invoice.due_date
-                else None
-            ),
-            "subtotal": float(invoice.subtotal),
-            "discount_amount": float(invoice.discount_amount),
-            "tax_amount": float(invoice.tax_amount),
-            "total_amount": float(invoice.total_amount),
-            "invoice_status": invoice.invoice_status,
-            "generated_by": invoice.generated_by
-        }
-        for invoice in invoices
-    ])
+    return (
+        customer is not None
+        and customer.customer_id == booking.customer_id
+    )
 
 
-# =========================
-# GET SINGLE INVOICE
-# =========================
+# =========================================================
+# SERIALIZATION
+# =========================================================
 
-@invoice_bp.route("/<int:invoice_id>", methods=["GET"])
-def get_invoice(invoice_id):
-
-    invoice = Invoice.query.get_or_404(invoice_id)
-
-    return jsonify({
+def serialize_invoice(invoice, include_items=False):
+    result = {
         "invoice_id": invoice.invoice_id,
         "invoice_number": invoice.invoice_number,
         "booking_id": invoice.booking_id,
-        "invoice_date": invoice.invoice_date.isoformat(),
+        "invoice_date": (
+            invoice.invoice_date.isoformat()
+            if invoice.invoice_date
+            else None
+        ),
         "due_date": (
             invoice.due_date.isoformat()
             if invoice.due_date
@@ -71,31 +66,90 @@ def get_invoice(invoice_id):
         "total_amount": float(invoice.total_amount),
         "invoice_status": invoice.invoice_status,
         "generated_by": invoice.generated_by,
+    }
 
-        "items": [
+    if include_items:
+        result["items"] = [
             {
                 "invoice_item_id": item.invoice_item_id,
                 "description": item.description,
                 "quantity": float(item.quantity),
                 "unit_price": float(item.unit_price),
-                "line_total": float(item.line_total)
+                "line_total": float(item.line_total),
             }
             for item in invoice.items
         ]
-    })
+
+    return result
 
 
-# =========================
+# =========================================================
+# GET ALL INVOICES
+# HIGHER_ADMIN / STAFF ONLY
+# =========================================================
+
+@invoice_bp.route("/", methods=["GET"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_invoices():
+    invoices = Invoice.query.order_by(
+        Invoice.invoice_id.desc()
+    ).all()
+
+    return jsonify([
+        serialize_invoice(invoice)
+        for invoice in invoices
+    ]), 200
+
+
+# =========================================================
+# GET SINGLE INVOICE
+# CUSTOMER: OWN BOOKING ONLY
+# STAFF / ADMIN: ANY INVOICE
+# =========================================================
+
+@invoice_bp.route("/<int:invoice_id>", methods=["GET"])
+@jwt_required()
+def get_invoice(invoice_id):
+    user = get_current_user()
+
+    if not user:
+        return jsonify({
+            "error": "User not found or inactive"
+        }), 403
+
+    invoice = Invoice.query.get_or_404(invoice_id)
+    booking = Booking.query.get_or_404(invoice.booking_id)
+
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+
+    return jsonify(serialize_invoice(invoice, include_items=True)), 200
+
+
+# =========================================================
 # GET INVOICE BY BOOKING
-# =========================
+# CUSTOMER: OWN BOOKING ONLY
+# STAFF / ADMIN: ANY BOOKING
+# =========================================================
 
 @invoice_bp.route("/booking/<int:booking_id>", methods=["GET"])
+@jwt_required()
 def get_invoice_by_booking(booking_id):
+    user = get_current_user()
 
-    Booking.query.get_or_404(booking_id)
+    if not user:
+        return jsonify({
+            "error": "User not found or inactive"
+        }), 403
+
+    booking = Booking.query.get_or_404(booking_id)
+
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
 
     invoice = Invoice.query.filter_by(
-        booking_id=booking_id
+        booking_id=booking.booking_id
     ).first()
 
     if not invoice:
@@ -103,60 +157,39 @@ def get_invoice_by_booking(booking_id):
             "error": "Invoice not found for this booking"
         }), 404
 
-    return jsonify({
-        "invoice_id": invoice.invoice_id,
-        "invoice_number": invoice.invoice_number,
-        "booking_id": invoice.booking_id,
-        "invoice_date": invoice.invoice_date.isoformat(),
-        "due_date": (
-            invoice.due_date.isoformat()
-            if invoice.due_date
-            else None
-        ),
-        "subtotal": float(invoice.subtotal),
-        "discount_amount": float(invoice.discount_amount),
-        "tax_amount": float(invoice.tax_amount),
-        "total_amount": float(invoice.total_amount),
-        "invoice_status": invoice.invoice_status,
-        "generated_by": invoice.generated_by,
-
-        "items": [
-            {
-                "invoice_item_id": item.invoice_item_id,
-                "description": item.description,
-                "quantity": float(item.quantity),
-                "unit_price": float(item.unit_price),
-                "line_total": float(item.line_total)
-            }
-            for item in invoice.items
-        ]
-    })
+    return jsonify(serialize_invoice(invoice, include_items=True)), 200
 
 
-# =========================
+# =========================================================
 # CREATE INVOICE
-# =========================
+# HIGHER_ADMIN / STAFF ONLY
+# =========================================================
 
 @invoice_bp.route("/", methods=["POST"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
 def create_invoice():
+    data = request.get_json(silent=True)
 
-    data = request.get_json()
+    if not isinstance(data, dict):
+        return jsonify({
+            "error": "A valid JSON object is required"
+        }), 400
 
-    required_fields = [
-        "booking_id",
-        "subtotal",
-        "total_amount"
-    ]
+    booking_id = data.get("booking_id")
 
-    for field in required_fields:
-        if field not in data:
-            return jsonify({
-                "error": f"Missing field: {field}"
-            }), 400
+    if (
+        isinstance(booking_id, bool)
+        or not isinstance(booking_id, int)
+        or booking_id <= 0
+    ):
+        return jsonify({
+            "error": "A valid booking_id is required"
+        }), 400
 
-    booking = Booking.query.get(data["booking_id"])
+    booking = db.session.get(Booking, booking_id)
 
-    if not booking:
+    if booking is None:
         return jsonify({
             "error": "Booking not found"
         }), 404
@@ -169,56 +202,135 @@ def create_invoice():
         return jsonify({
             "error": "An invoice already exists for this booking",
             "invoice_id": existing_invoice.invoice_id,
-            "invoice_number": existing_invoice.invoice_number
+            "invoice_number": existing_invoice.invoice_number,
         }), 409
 
+    user = get_current_user()
+
+    if not user:
+        return jsonify({
+            "error": "User not found or inactive"
+        }), 403
+
+     # Generate the invoice line item from the booking.
+# Use the stored booking subtotal to preserve the booked price.
+    items = [
+       {
+        "description": booking.package.package_name,
+        "quantity": booking.number_of_travelers,
+        "unit_price": (
+            Decimal(str(booking.subtotal))
+            / Decimal(str(booking.number_of_travelers))
+        ),
+    }
+]
+
     try:
+        # Generate an invoice number using the current year's count.
+        # See the note below about concurrent invoice creation.
         current_year = datetime.now().year
 
-        invoice_count = Invoice.query.filter(
-            Invoice.invoice_number.like(
-                f"INV-{current_year}-%"
-            )
-        ).count()
+        sequence_number = db.session.execute(
+        text("SELECT nextval('invoice_number_seq')")
+        ).scalar_one()
 
         invoice_number = (
-            f"INV-{current_year}-{invoice_count + 1:06d}"
-        )
+         f"INV-{current_year}-{sequence_number:06d}"
+)
 
+        # Financial values come from the database booking,
+        # not from client-supplied invoice totals.
         invoice = Invoice(
             invoice_number=invoice_number,
             booking_id=booking.booking_id,
-            subtotal=data["subtotal"],
-            discount_amount=data.get("discount_amount", 0),
-            tax_amount=data.get("tax_amount", 0),
-            total_amount=data["total_amount"],
-            invoice_status=data.get("invoice_status", "ISSUED"),
-            generated_by=data.get("generated_by")
+            subtotal=booking.subtotal,
+            discount_amount=booking.discount_amount,
+            tax_amount=booking.tax_amount,
+            total_amount=booking.total_amount,
+            invoice_status="ISSUED",
+            generated_by=user.user_id,
         )
 
         db.session.add(invoice)
         db.session.flush()
 
-        items = data.get("items", [])
+        items_subtotal = Decimal("0.00")
+        cents = Decimal("0.01")
 
         for item in items:
+            if not isinstance(item, dict):
+                raise ValueError(
+                    "Each invoice item must be an object"
+                )
 
-            quantity = item.get("quantity", 1)
-            unit_price = item["unit_price"]
-            line_total = item.get(
-                "line_total",
-                quantity * unit_price
-            )
+            description = item.get("description")
+
+            if (
+                not isinstance(description, str)
+                or not description.strip()
+            ):
+                raise ValueError(
+                    "Each invoice item needs a description"
+                )
+
+            try:
+                quantity = Decimal(
+                    str(item.get("quantity", "1"))
+                )
+                unit_price = Decimal(
+                    str(item["unit_price"])
+                )
+
+                if (
+                    not quantity.is_finite()
+                    or not unit_price.is_finite()
+                ):
+                    raise ValueError(
+                        "Quantity and unit price must be finite numbers"
+                    )
+
+                quantity = quantity.quantize(cents)
+                unit_price = unit_price.quantize(cents)
+
+            except (KeyError, InvalidOperation, TypeError, ValueError):
+                raise ValueError(
+                    "Each item needs a valid quantity and unit_price"
+                )
+
+            if not quantity.is_finite() or quantity <= 0:
+                raise ValueError(
+                    "Quantity must be greater than zero"
+                )
+
+            if not unit_price.is_finite() or unit_price < 0:
+                raise ValueError(
+                    "Unit price must be non-negative"
+                )
+
+            line_total = (quantity * unit_price).quantize(cents)
+            items_subtotal += line_total
 
             invoice_item = InvoiceItem(
                 invoice_id=invoice.invoice_id,
-                description=item["description"],
+                description=description.strip(),
                 quantity=quantity,
                 unit_price=unit_price,
-                line_total=line_total
+                line_total=line_total,
             )
 
             db.session.add(invoice_item)
+
+        # If line items are supplied, their sum must equal the
+        # booking subtotal before discount and tax.
+        if items:
+            booking_subtotal = Decimal(
+                str(booking.subtotal)
+            ).quantize(cents)
+
+            if items_subtotal != booking_subtotal:
+                raise ValueError(
+                    "Invoice item totals must equal the booking subtotal"
+                )
 
         db.session.commit()
 
@@ -227,13 +339,22 @@ def create_invoice():
             "invoice_id": invoice.invoice_id,
             "invoice_number": invoice.invoice_number,
             "booking_id": invoice.booking_id,
-            "total_amount": float(invoice.total_amount)
+            "total_amount": float(invoice.total_amount),
+            "generated_by": invoice.generated_by,
         }), 201
 
-    except Exception as e:
-
+    except ValueError as e:
         db.session.rollback()
 
         return jsonify({
             "error": str(e)
+        }), 400
+
+    except Exception:
+        db.session.rollback()
+
+        # Keep internal database and implementation details out
+        # of the response. Check the Flask server log for details.
+        return jsonify({
+            "error": "An unexpected error occurred while creating the invoice"
         }), 500

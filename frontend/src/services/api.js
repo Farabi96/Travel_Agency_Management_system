@@ -1,4 +1,4 @@
-
+ 
 const API_BASE_URL = "http://127.0.0.1:5000/api";
 
 // ------------------------------
@@ -263,4 +263,113 @@ export async function changePassword(passwordData) {
     method: "PUT",
     body: JSON.stringify(passwordData),
   });
+}
+
+
+// ------------------------------
+// CUSTOMER PAYMENT WORKFLOW
+// ------------------------------
+export async function getPaymentMethods() {
+  return authenticatedRequest("/payments/methods");
+}
+
+export async function createPaymentRequest(paymentData) {
+  return authenticatedRequest("/payments/", {
+    method: "POST",
+    body: JSON.stringify(paymentData),
+  });
+}
+
+export async function getBookingPayments(bookingId) {
+  return authenticatedRequest(`/payments/booking/${encodeURIComponent(bookingId)}`);
+}
+
+export async function recordOfflinePayment(paymentData) {
+  return authenticatedRequest("/payments/record", {
+    method: "POST",
+    body: JSON.stringify(paymentData),
+  });
+}
+
+
+/* ==============================
+   BOOKINGS
+============================== */
+
+export async function getBookings() {
+  return authenticatedRequest("/bookings/");
+}
+
+export async function createBooking(bookingData) {
+  return authenticatedRequest("/bookings/", {
+    method: "POST",
+    body: JSON.stringify({
+      package_id: bookingData.package_id,
+      schedule_id: bookingData.schedule_id,
+      number_of_travelers: bookingData.number_of_travelers,
+      special_request: bookingData.special_request || "",
+    }),
+  });
+}
+
+export async function getBooking(bookingId) {
+  return authenticatedRequest(
+    `/bookings/${encodeURIComponent(bookingId)}`
+  );
+}
+
+export async function getMyBookings() {
+  return authenticatedRequest("/bookings/mine");
+}
+
+export async function cancelBooking(bookingId) {
+  return authenticatedRequest(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ terms_accepted: true }),
+  });
+}
+
+/* ==============================
+   INVOICES
+============================== */
+
+export async function getInvoices() {
+  return authenticatedRequest("/invoices/");
+}
+
+export async function getInvoice(invoiceId) {
+  return authenticatedRequest(
+    `/invoices/${encodeURIComponent(invoiceId)}`
+  );
+}
+
+export async function getInvoiceByBooking(bookingId) {
+  return authenticatedRequest(
+    `/invoices/booking/${encodeURIComponent(bookingId)}`
+  );
+}
+
+export async function createInvoice(invoiceData) {
+  return authenticatedRequest("/invoices/", {
+    method: "POST",
+    body: JSON.stringify(invoiceData),
+  });
+}
+
+/* ==============================
+   PAYMENT MANAGEMENT
+============================== */
+
+export async function getPaymentOverview() {
+  return authenticatedRequest("/payments/overview");
+}
+
+export async function updatePaymentStatus(paymentId, statusName) {
+  return authenticatedRequest(
+    `/payments/${encodeURIComponent(paymentId)}/status`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ status_name: statusName }),
+    }
+  );
 }

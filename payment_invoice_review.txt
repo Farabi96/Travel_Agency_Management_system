@@ -1,0 +1,2280 @@
+﻿
+
+========== routes/payment_routes.py ==========
+ 
+from decimal import Decimal
+from uuid import uuid4
+
+from flask import Blueprint, jsonify, request
+from flask_jwt_extended import jwt_required
+
+from extensions import db
+from models import (
+    Payment,
+    PaymentMethod,
+    PaymentStatus,
+    Booking,
+    Invoice,
+    Customer,
+)
+
+from auth_utils import get_current_user, role_required, is_staff_or_admin
+
+
+payment_bp = Blueprint(
+    "payment",
+    __name__,
+    url_prefix="/api/payments"
+)
+
+
+def payment_to_dict(payment):
+    return {
+        "payment_id": payment.payment_id,
+        "booking_id": payment.booking_id,
+        "invoice_id": payment.invoice_id,
+        "transaction_reference": payment.transaction_reference,
+        "gateway_transaction_id": payment.gateway_transaction_id,
+        "amount": float(payment.amount),
+        "payment_method_id": payment.payment_method_id,
+        "payment_method": (
+            payment.payment_method.method_name
+            if payment.payment_method else None
+        ),
+        "payment_status_id": payment.payment_status_id,
+        "payment_status": (
+            payment.payment_status.status_name
+            if payment.payment_status else None
+        ),
+        "payment_date": (
+            payment.payment_date.isoformat()
+            if payment.payment_date else None
+        ),
+        "received_by": payment.received_by,
+        "notes": payment.notes,
+    }
+
+
+def customer_for_user(user):
+    return Customer.query.filter_by(user_id=user.user_id).first()
+
+
+def can_access_booking(user, booking):
+    if is_staff_or_admin(user):
+        return True
+
+    customer = customer_for_user(user)
+
+    return (
+        customer is not None
+        and booking.customer_id == customer.customer_id
+    )
+
+
+def find_payment_status(name):
+    return PaymentStatus.query.filter_by(status_name=name).first()
+
+
+def paid_amount_for_booking(booking_id):
+    paid_status = find_payment_status("PAID")
+
+    if not paid_status:
+        raise ValueError("PAID payment status is not configured")
+
+    total = (
+        db.session.query(db.func.coalesce(db.func.sum(Payment.amount), 0))
+        .filter_by(
+            booking_id=booking_id,
+            payment_status_id=paid_status.payment_status_id
+        )
+        .scalar()
+    )
+
+    return Decimal(str(total))
+
+
+def outstanding_amount(booking, invoice):
+    total_amount = Decimal(
+        str(invoice.total_amount if invoice else booking.total_amount)
+    )
+
+    outstanding = total_amount - paid_amount_for_booking(booking.booking_id)
+
+    return max(outstanding, Decimal("0.00"))
+
+
+# GET ACTIVE PAYMENT METHODS
+@payment_bp.route("/methods", methods=["GET"])
+def get_payment_methods():
+    methods = PaymentMethod.query.filter_by(
+        status="ACTIVE"
+    ).order_by(PaymentMethod.payment_method_id.asc()).all()
+
+    return jsonify([
+        {
+            "payment_method_id": method.payment_method_id,
+            "method_name": method.method_name,
+            "description": method.description,
+            "is_online": bool(method.is_online),
+            "available_for_request": not bool(method.is_online),
+        }
+        for method in methods
+    ])
+
+
+# GET PAYMENT STATUSES — STAFF/ADMIN ONLY
+@payment_bp.route("/statuses", methods=["GET"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_payment_statuses():
+    statuses = PaymentStatus.query.order_by(
+        PaymentStatus.payment_status_id.asc()
+    ).all()
+
+    return jsonify([
+        {
+            "payment_status_id": status.payment_status_id,
+            "status_name": status.status_name,
+            "description": status.description,
+        }
+        for status in statuses
+    ])
+
+
+# GET MY PAYMENTS — CUSTOMER ONLY
+@payment_bp.route("/mine", methods=["GET"])
+@role_required("CUSTOMER")
+def get_my_payments():
+    user = get_current_user()
+
+    customer = customer_for_user(user)
+
+    if not customer:
+        return jsonify({"error": "Customer profile not found"}), 404
+
+    payments = (
+        Payment.query
+        .join(Booking, Payment.booking_id == Booking.booking_id)
+        .filter(Booking.customer_id == customer.customer_id)
+        .order_by(Payment.payment_id.desc())
+        .all()
+    )
+
+    return jsonify([payment_to_dict(payment) for payment in payments])
+
+
+# GET ALL PAYMENTS — STAFF/ADMIN ONLY
+@payment_bp.route("/", methods=["GET"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_payments():
+    payments = Payment.query.order_by(
+        Payment.payment_id.desc()
+    ).all()
+
+    return jsonify([payment_to_dict(payment) for payment in payments])
+
+
+# GET PAYMENT OVERVIEW — STAFF/ADMIN ONLY
+@payment_bp.route("/overview", methods=["GET"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_payment_overview():
+    bookings = Booking.query.order_by(
+        Booking.booking_id.desc()
+    ).all()
+
+    paid_status = PaymentStatus.query.filter_by(
+        status_name="PAID"
+    ).first()
+
+    pending_status = PaymentStatus.query.filter_by(
+        status_name="PENDING"
+    ).first()
+
+    if not paid_status or not pending_status:
+        return jsonify({
+            "error": "PAID or PENDING payment status is not configured"
+        }), 500
+
+    results = []
+
+    for booking in bookings:
+        invoice = Invoice.query.filter_by(
+        booking_id=booking.booking_id
+         ).first()
+        total_amount = Decimal(str(
+            invoice.total_amount if invoice else booking.total_amount
+        ))
+
+        paid_total = (
+            db.session.query(
+                db.func.coalesce(db.func.sum(Payment.amount), 0)
+            )
+            .filter(
+                Payment.booking_id == booking.booking_id,
+                Payment.payment_status_id == paid_status.payment_status_id
+            )
+            .scalar()
+        )
+        paid_amount = Decimal(str(paid_total))
+        balance = max(Decimal("0.00"), total_amount - paid_amount)
+
+        payments = Payment.query.filter_by(
+            booking_id=booking.booking_id
+        ).order_by(Payment.payment_id.desc()).all()
+
+        pending_payments = [
+            payment_to_dict(payment)
+            for payment in payments
+            if payment.payment_status_id == pending_status.payment_status_id
+        ]
+
+        if balance <= Decimal("0.00"):
+            payment_summary = "PAID"
+        elif paid_amount > Decimal("0.00"):
+            payment_summary = "PARTIALLY_PAID"
+        elif pending_payments:
+            payment_summary = "PENDING"
+        else:
+            payment_summary = "UNPAID"
+
+        customer = booking.customer
+        customer_name = (
+            f"{customer.first_name} {customer.last_name or ''}".strip()
+            if customer else "Unknown customer"
+        )
+
+        results.append({
+            "booking_id": booking.booking_id,
+            "booking_reference": booking.booking_reference,
+            "customer_name": customer_name,
+            "package_name": (
+                booking.package.package_name if booking.package else None
+            ),
+            "travel_date": (
+                booking.travel_date.isoformat() if booking.travel_date else None
+            ),
+            "booking_status": (
+                booking.status.status_name if booking.status else None
+            ),
+            "invoice_id": invoice.invoice_id if invoice else None,
+            "invoice_number": invoice.invoice_number if invoice else None,
+            "total_amount": float(total_amount),
+            "paid_amount": float(paid_amount),
+            "balance": float(balance),
+            "payment_summary": payment_summary,
+            "pending_payments": pending_payments,
+        })
+
+    return jsonify(results), 200
+
+
+
+# GET ONE PAYMENT — AUTHENTICATED OWNER OR STAFF/ADMIN
+@payment_bp.route("/<int:payment_id>", methods=["GET"])
+@jwt_required()
+def get_payment(payment_id):
+    user = get_current_user()
+
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 403
+
+    payment = Payment.query.get_or_404(payment_id)
+
+    if not can_access_booking(user, payment.booking):
+        return jsonify({"error": "Access denied"}), 403
+
+    return jsonify(payment_to_dict(payment))
+
+
+# GET PAYMENTS FOR A BOOKING
+@payment_bp.route("/booking/<int:booking_id>", methods=["GET"])
+@jwt_required()
+def get_booking_payments(booking_id):
+    user = get_current_user()
+
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 403
+
+    booking = Booking.query.get_or_404(booking_id)
+
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+
+    payments = Payment.query.filter_by(
+        booking_id=booking_id
+    ).order_by(Payment.payment_id.desc()).all()
+
+    return jsonify([payment_to_dict(payment) for payment in payments])
+
+
+# GET PAYMENTS FOR AN INVOICE
+@payment_bp.route("/invoice/<int:invoice_id>", methods=["GET"])
+@jwt_required()
+def get_invoice_payments(invoice_id):
+    user = get_current_user()
+
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 403
+
+    invoice = Invoice.query.get_or_404(invoice_id)
+    booking = Booking.query.get_or_404(invoice.booking_id)
+
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+
+    payments = Payment.query.filter_by(
+        invoice_id=invoice_id
+    ).order_by(Payment.payment_id.desc()).all()
+
+    return jsonify([payment_to_dict(payment) for payment in payments])
+
+
+# CREATE A PAYMENT REQUEST — CUSTOMER ONLY
+@payment_bp.route("/", methods=["POST"])
+@role_required("CUSTOMER")
+def create_payment():
+    user = get_current_user()
+
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 403
+
+    data = request.get_json(silent=True) or {}
+
+    booking_id = data.get("booking_id")
+    payment_method_id = data.get("payment_method_id")
+
+    if not booking_id or not payment_method_id:
+        return jsonify({
+            "error": "booking_id and payment_method_id are required"
+        }), 400
+
+    booking = Booking.query.get(booking_id)
+
+    if not booking:
+        return jsonify({"error": "Booking not found"}), 404
+
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+
+    method = PaymentMethod.query.get(payment_method_id)
+
+    if not method or method.status != "ACTIVE":
+        return jsonify({"error": "Invalid or inactive payment method"}), 400
+
+    # No real payment gateway is configured.
+    if method.is_online:
+        return jsonify({
+            "error": "Online payments are not available yet"
+        }), 400
+
+    invoice = Invoice.query.filter_by(
+        booking_id=booking.booking_id
+    ).first()
+
+    if invoice and invoice.invoice_status in ("VOID", "REFUNDED"):
+        return jsonify({"error": "This invoice cannot receive payments"}), 400
+
+    try:
+        amount = outstanding_amount(booking, invoice)
+
+        if amount <= Decimal("0.00"):
+            return jsonify({"error": "No outstanding amount remains"}), 400
+
+        pending_status = find_payment_status("PENDING")
+
+        if not pending_status:
+            return jsonify({
+                "error": "PENDING payment status is not configured"
+            }), 500
+
+        payment = Payment(
+            booking_id=booking.booking_id,
+            invoice_id=invoice.invoice_id if invoice else None,
+            transaction_reference=f"REQ-{uuid4().hex.upper()}",
+            amount=amount,
+            payment_method_id=method.payment_method_id,
+            payment_status_id=pending_status.payment_status_id,
+            notes="Payment request awaiting staff verification",
+        )
+
+        db.session.add(payment)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Payment request created; verification is pending",
+            "payment": payment_to_dict(payment),
+        }), 201
+
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Unable to create payment request"}), 500
+
+
+# UPDATE PAYMENT STATUS — STAFF/ADMIN ONLY
+@payment_bp.route("/<int:payment_id>/status", methods=["PUT"])
+@role_required("HIGHER_ADMIN", "STAFF")
+def update_payment_status(payment_id):
+    user = get_current_user()
+    payment = Payment.query.get_or_404(payment_id)
+
+    data = request.get_json(silent=True) or {}
+    status_name = data.get("status_name")
+
+    allowed_statuses = {"PAID", "FAILED", "REFUNDED"}
+
+    if status_name not in allowed_statuses:
+        return jsonify({
+            "error": "status_name must be PAID, FAILED, or REFUNDED"
+        }), 400
+
+    current_status = payment.payment_status.status_name
+
+    if current_status != "PENDING" and not (
+        current_status == "PAID" and status_name == "REFUNDED"
+    ):
+        return jsonify({
+            "error": f"Cannot change payment from {current_status} to {status_name}"
+        }), 400
+
+    new_status = find_payment_status(status_name)
+
+    if not new_status:
+        return jsonify({
+            "error": f"{status_name} payment status is not configured"
+        }), 500
+
+    try:
+        payment.payment_status_id = new_status.payment_status_id
+
+        if status_name == "PAID":
+            payment.received_by = user.user_id
+
+        invoice = payment.invoice
+
+        if invoice:
+            paid_status = find_payment_status("PAID")
+
+            paid_total = Decimal("0.00")
+
+            if paid_status:
+                paid_total = Decimal(str(
+                    db.session.query(
+                        db.func.coalesce(db.func.sum(Payment.amount), 0)
+                    )
+                    .filter(
+                        Payment.invoice_id == invoice.invoice_id,
+                        Payment.payment_status_id == paid_status.payment_status_id,
+                    )
+                    .scalar()
+                ))
+
+            invoice_total = Decimal(str(invoice.total_amount))
+
+            if status_name == "REFUNDED":
+                invoice.invoice_status = "ISSUED"
+            elif paid_total >= invoice_total:
+                invoice.invoice_status = "PAID"
+            elif paid_total > Decimal("0.00"):
+                invoice.invoice_status = "PARTIALLY_PAID"
+            else:
+                invoice.invoice_status = "ISSUED"
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Payment status updated successfully",
+            "payment": payment_to_dict(payment),
+        })
+
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Unable to update payment status"}), 500
+
+
+========== routes/invoice_routes.py ==========
+ 
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+
+from flask import Blueprint, jsonify, request
+from flask_jwt_extended import jwt_required
+from sqlalchemy import text
+
+from auth_utils import (
+    get_current_user,
+    role_required,
+    is_staff_or_admin,
+)
+from extensions import db
+from models import Invoice, InvoiceItem, Booking, Customer
+
+
+invoice_bp = Blueprint(
+    "invoice",
+    __name__,
+    url_prefix="/api/invoices",
+)
+
+
+# =========================================================
+# ACCESS CONTROL
+# =========================================================
+
+def can_access_booking(user, booking):
+    """Allow staff/admin access or access to the customer's own booking."""
+    if is_staff_or_admin(user):
+        return True
+
+    customer = Customer.query.filter_by(
+        user_id=user.user_id
+    ).first()
+
+    return (
+        customer is not None
+        and customer.customer_id == booking.customer_id
+    )
+
+
+# =========================================================
+# SERIALIZATION
+# =========================================================
+
+def serialize_invoice(invoice, include_items=False):
+    result = {
+        "invoice_id": invoice.invoice_id,
+        "invoice_number": invoice.invoice_number,
+        "booking_id": invoice.booking_id,
+        "invoice_date": (
+            invoice.invoice_date.isoformat()
+            if invoice.invoice_date
+            else None
+        ),
+        "due_date": (
+            invoice.due_date.isoformat()
+            if invoice.due_date
+            else None
+        ),
+        "subtotal": float(invoice.subtotal),
+        "discount_amount": float(invoice.discount_amount),
+        "tax_amount": float(invoice.tax_amount),
+        "total_amount": float(invoice.total_amount),
+        "invoice_status": invoice.invoice_status,
+        "generated_by": invoice.generated_by,
+    }
+
+    if include_items:
+        result["items"] = [
+            {
+                "invoice_item_id": item.invoice_item_id,
+                "description": item.description,
+                "quantity": float(item.quantity),
+                "unit_price": float(item.unit_price),
+                "line_total": float(item.line_total),
+            }
+            for item in invoice.items
+        ]
+
+    return result
+
+
+# =========================================================
+# GET ALL INVOICES
+# HIGHER_ADMIN / STAFF ONLY
+# =========================================================
+
+@invoice_bp.route("/", methods=["GET"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_invoices():
+    invoices = Invoice.query.order_by(
+        Invoice.invoice_id.desc()
+    ).all()
+
+    return jsonify([
+        serialize_invoice(invoice)
+        for invoice in invoices
+    ]), 200
+
+
+# =========================================================
+# GET SINGLE INVOICE
+# CUSTOMER: OWN BOOKING ONLY
+# STAFF / ADMIN: ANY INVOICE
+# =========================================================
+
+@invoice_bp.route("/<int:invoice_id>", methods=["GET"])
+@jwt_required()
+def get_invoice(invoice_id):
+    user = get_current_user()
+
+    if not user:
+        return jsonify({
+            "error": "User not found or inactive"
+        }), 403
+
+    invoice = Invoice.query.get_or_404(invoice_id)
+    booking = Booking.query.get_or_404(invoice.booking_id)
+
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+
+    return jsonify(serialize_invoice(invoice, include_items=True)), 200
+
+
+# =========================================================
+# GET INVOICE BY BOOKING
+# CUSTOMER: OWN BOOKING ONLY
+# STAFF / ADMIN: ANY BOOKING
+# =========================================================
+
+@invoice_bp.route("/booking/<int:booking_id>", methods=["GET"])
+@jwt_required()
+def get_invoice_by_booking(booking_id):
+    user = get_current_user()
+
+    if not user:
+        return jsonify({
+            "error": "User not found or inactive"
+        }), 403
+
+    booking = Booking.query.get_or_404(booking_id)
+
+    if not can_access_booking(user, booking):
+        return jsonify({"error": "Access denied"}), 403
+
+    invoice = Invoice.query.filter_by(
+        booking_id=booking.booking_id
+    ).first()
+
+    if not invoice:
+        return jsonify({
+            "error": "Invoice not found for this booking"
+        }), 404
+
+    return jsonify(serialize_invoice(invoice, include_items=True)), 200
+
+
+# =========================================================
+# CREATE INVOICE
+# HIGHER_ADMIN / STAFF ONLY
+# =========================================================
+
+@invoice_bp.route("/", methods=["POST"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def create_invoice():
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({
+            "error": "A valid JSON object is required"
+        }), 400
+
+    booking_id = data.get("booking_id")
+
+    if (
+        isinstance(booking_id, bool)
+        or not isinstance(booking_id, int)
+        or booking_id <= 0
+    ):
+        return jsonify({
+            "error": "A valid booking_id is required"
+        }), 400
+
+    booking = db.session.get(Booking, booking_id)
+
+    if booking is None:
+        return jsonify({
+            "error": "Booking not found"
+        }), 404
+
+    existing_invoice = Invoice.query.filter_by(
+        booking_id=booking.booking_id
+    ).first()
+
+    if existing_invoice:
+        return jsonify({
+            "error": "An invoice already exists for this booking",
+            "invoice_id": existing_invoice.invoice_id,
+            "invoice_number": existing_invoice.invoice_number,
+        }), 409
+
+    user = get_current_user()
+
+    if not user:
+        return jsonify({
+            "error": "User not found or inactive"
+        }), 403
+
+     # Generate the invoice line item from the booking.
+# Use the stored booking subtotal to preserve the booked price.
+    items = [
+       {
+        "description": booking.package.package_name,
+        "quantity": booking.number_of_travelers,
+        "unit_price": (
+            Decimal(str(booking.subtotal))
+            / Decimal(str(booking.number_of_travelers))
+        ),
+    }
+]
+
+    try:
+        # Generate an invoice number using the current year's count.
+        # See the note below about concurrent invoice creation.
+        current_year = datetime.now().year
+
+        sequence_number = db.session.execute(
+        text("SELECT nextval('invoice_number_seq')")
+        ).scalar_one()
+
+        invoice_number = (
+         f"INV-{current_year}-{sequence_number:06d}"
+)
+
+        # Financial values come from the database booking,
+        # not from client-supplied invoice totals.
+        invoice = Invoice(
+            invoice_number=invoice_number,
+            booking_id=booking.booking_id,
+            subtotal=booking.subtotal,
+            discount_amount=booking.discount_amount,
+            tax_amount=booking.tax_amount,
+            total_amount=booking.total_amount,
+            invoice_status="ISSUED",
+            generated_by=user.user_id,
+        )
+
+        db.session.add(invoice)
+        db.session.flush()
+
+        items_subtotal = Decimal("0.00")
+        cents = Decimal("0.01")
+
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError(
+                    "Each invoice item must be an object"
+                )
+
+            description = item.get("description")
+
+            if (
+                not isinstance(description, str)
+                or not description.strip()
+            ):
+                raise ValueError(
+                    "Each invoice item needs a description"
+                )
+
+            try:
+                quantity = Decimal(
+                    str(item.get("quantity", "1"))
+                )
+                unit_price = Decimal(
+                    str(item["unit_price"])
+                )
+
+                if (
+                    not quantity.is_finite()
+                    or not unit_price.is_finite()
+                ):
+                    raise ValueError(
+                        "Quantity and unit price must be finite numbers"
+                    )
+
+                quantity = quantity.quantize(cents)
+                unit_price = unit_price.quantize(cents)
+
+            except (KeyError, InvalidOperation, TypeError, ValueError):
+                raise ValueError(
+                    "Each item needs a valid quantity and unit_price"
+                )
+
+            if not quantity.is_finite() or quantity <= 0:
+                raise ValueError(
+                    "Quantity must be greater than zero"
+                )
+
+            if not unit_price.is_finite() or unit_price < 0:
+                raise ValueError(
+                    "Unit price must be non-negative"
+                )
+
+            line_total = (quantity * unit_price).quantize(cents)
+            items_subtotal += line_total
+
+            invoice_item = InvoiceItem(
+                invoice_id=invoice.invoice_id,
+                description=description.strip(),
+                quantity=quantity,
+                unit_price=unit_price,
+                line_total=line_total,
+            )
+
+            db.session.add(invoice_item)
+
+        # If line items are supplied, their sum must equal the
+        # booking subtotal before discount and tax.
+        if items:
+            booking_subtotal = Decimal(
+                str(booking.subtotal)
+            ).quantize(cents)
+
+            if items_subtotal != booking_subtotal:
+                raise ValueError(
+                    "Invoice item totals must equal the booking subtotal"
+                )
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Invoice created successfully",
+            "invoice_id": invoice.invoice_id,
+            "invoice_number": invoice.invoice_number,
+            "booking_id": invoice.booking_id,
+            "total_amount": float(invoice.total_amount),
+            "generated_by": invoice.generated_by,
+        }), 201
+
+    except ValueError as e:
+        db.session.rollback()
+
+        return jsonify({
+            "error": str(e)
+        }), 400
+
+    except Exception:
+        db.session.rollback()
+
+        # Keep internal database and implementation details out
+        # of the response. Check the Flask server log for details.
+        return jsonify({
+            "error": "An unexpected error occurred while creating the invoice"
+        }), 500
+
+
+========== models/payment.py ==========
+from extensions import db
+
+
+class Payment(db.Model):
+    __tablename__ = "payments"
+
+    payment_id = db.Column(
+        db.BigInteger,
+        primary_key=True,
+        autoincrement=True
+    )
+
+    booking_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("bookings.booking_id"),
+        nullable=False
+    )
+
+    invoice_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("invoices.invoice_id"),
+        nullable=True
+    )
+
+    transaction_reference = db.Column(
+        db.String(100),
+        unique=True,
+        nullable=False
+    )
+
+    gateway_transaction_id = db.Column(
+        db.String(150),
+        nullable=True
+    )
+
+    amount = db.Column(
+        db.Numeric(12, 2),
+        nullable=False
+    )
+
+    payment_method_id = db.Column(
+        db.SmallInteger,
+        db.ForeignKey("payment_methods.payment_method_id"),
+        nullable=False
+    )
+
+    payment_status_id = db.Column(
+        db.SmallInteger,
+        db.ForeignKey("payment_statuses.payment_status_id"),
+        nullable=False
+    )
+
+    payment_date = db.Column(
+        db.DateTime,
+        nullable=False,
+        server_default=db.func.current_timestamp()
+    )
+
+    received_by = db.Column(
+        db.BigInteger,
+        db.ForeignKey("users.user_id"),
+        nullable=True
+    )
+
+    notes = db.Column(
+        db.Text,
+        nullable=True
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        server_default=db.func.current_timestamp()
+    )
+
+    booking = db.relationship(
+        "Booking",
+        backref="payments"
+    )
+
+    invoice = db.relationship(
+        "Invoice",
+        backref="payments"
+    )
+
+    payment_method = db.relationship(
+        "PaymentMethod",
+        backref="payments"
+    )
+
+    payment_status = db.relationship(
+        "PaymentStatus",
+        backref="payments"
+    )
+
+    receiver = db.relationship(
+        "User",
+        foreign_keys=[received_by],
+        backref="received_payments"
+    )
+
+
+========== models/payment_method.py ==========
+from extensions import db
+
+
+class PaymentMethod(db.Model):
+    __tablename__ = "payment_methods"
+
+    payment_method_id = db.Column(
+        db.SmallInteger,
+        primary_key=True,
+        autoincrement=True
+    )
+
+    method_name = db.Column(
+        db.String(50),
+        unique=True,
+        nullable=False
+    )
+
+    description = db.Column(
+        db.String(255),
+        nullable=True
+    )
+
+    is_online = db.Column(
+        db.Boolean,
+        nullable=False,
+        server_default="0"
+    )
+
+    status = db.Column(
+        db.Enum(
+            "ACTIVE",
+            "INACTIVE"
+        ),
+        nullable=False,
+        server_default="ACTIVE"
+    )
+
+
+========== models/payment_status.py ==========
+from extensions import db
+
+
+class PaymentStatus(db.Model):
+    __tablename__ = "payment_statuses"
+
+    payment_status_id = db.Column(
+        db.SmallInteger,
+        primary_key=True,
+        autoincrement=True
+    )
+
+    status_name = db.Column(
+        db.String(50),
+        unique=True,
+        nullable=False
+    )
+
+    description = db.Column(
+        db.String(255),
+        nullable=True
+    )
+
+
+========== models/invoice.py ==========
+from extensions import db
+
+
+class Invoice(db.Model):
+    __tablename__ = "invoices"
+
+    invoice_id = db.Column(
+        db.BigInteger,
+        primary_key=True,
+        autoincrement=True
+    )
+
+    invoice_number = db.Column(
+        db.String(40),
+        unique=True,
+        nullable=False
+    )
+
+    booking_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("bookings.booking_id"),
+        unique=True,
+        nullable=False
+    )
+
+    invoice_date = db.Column(
+        db.DateTime,
+        nullable=False,
+        server_default=db.func.current_timestamp()
+    )
+
+    due_date = db.Column(
+        db.DateTime,
+        nullable=True
+    )
+
+    subtotal = db.Column(
+        db.Numeric(12, 2),
+        nullable=False
+    )
+
+    discount_amount = db.Column(
+        db.Numeric(12, 2),
+        nullable=False,
+        server_default="0.00"
+    )
+
+    tax_amount = db.Column(
+        db.Numeric(12, 2),
+        nullable=False,
+        server_default="0.00"
+    )
+
+    total_amount = db.Column(
+        db.Numeric(12, 2),
+        nullable=False
+    )
+
+    invoice_status = db.Column(
+        db.Enum(
+            "ISSUED",
+            "PAID",
+            "PARTIALLY_PAID",
+            "VOID",
+            "REFUNDED"
+        ),
+        nullable=False,
+        server_default="ISSUED"
+    )
+
+    generated_by = db.Column(
+        db.BigInteger,
+        db.ForeignKey("users.user_id"),
+        nullable=True
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        server_default=db.func.current_timestamp()
+    )
+
+    booking = db.relationship(
+        "Booking",
+        backref="invoice",
+        uselist=False
+    )
+
+    generator = db.relationship(
+        "User",
+        foreign_keys=[generated_by],
+        backref="generated_invoices"
+    )
+
+
+========== frontend/src/pages/MyBookings.jsx ==========
+
+import { useEffect, useState } from "react";
+import { getMyBookings } from "../services/api";
+
+function MyBookings() {
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBookings() {
+      try {
+        const response = await getMyBookings();
+
+        if (!cancelled) {
+          // Support either a plain array or an object containing bookings.
+          const items = Array.isArray(response)
+            ? response
+            : response?.bookings ?? response?.data?.bookings ?? [];
+
+          setBookings(items);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err?.message || "Could not load your bookings. Please log in again."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadBookings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) return <div className="p-6">Loading your bookings...</div>;
+
+  if (error) {
+    return (
+      <div className="p-6 text-red-600">
+        <h2 className="text-xl font-bold">My Bookings</h2>
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl p-6">
+      <h1 className="mb-6 text-2xl font-bold">My Bookings</h1>
+
+      {bookings.length === 0 ? (
+        <p>You have no bookings yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse border border-gray-300">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border p-3 text-left">Reference</th>
+                <th className="border p-3 text-left">Package</th>
+                <th className="border p-3 text-left">Travel Date</th>
+                <th className="border p-3 text-left">Travelers</th>
+                <th className="border p-3 text-left">Total</th>
+                <th className="border p-3 text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bookings.map((booking) => (
+                <tr key={booking.booking_id ?? booking.booking_reference}>
+                  <td className="border p-3">
+                    {booking.booking_reference ?? "â€”"}
+                  </td>
+                  <td className="border p-3">
+                    {booking.package_name ??
+                      booking.package?.package_name ??
+                      booking.package_id ??
+                      "â€”"}
+                  </td>
+                  <td className="border p-3">
+                    {booking.travel_date
+                      ? String(booking.travel_date).slice(0, 10)
+                      : "â€”"}
+                  </td>
+                  <td className="border p-3">
+                    {booking.number_of_travelers ?? "â€”"}
+                  </td>
+                  <td className="border p-3">
+                    à§³{booking.total_amount ?? "0.00"}
+                  </td>
+                  <td className="border p-3">
+                    {booking.status_name ??
+                      booking.status?.status_name ??
+                      booking.status ??
+                      "Pending"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default MyBookings;
+
+
+========== frontend/src/pages/PaymentManagement.jsx ==========
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  getPaymentOverview,
+  updatePaymentStatus,
+} from "../services/api";
+
+const money = (value) =>
+  new Intl.NumberFormat("en-BD", {
+    style: "currency",
+    currency: "BDT",
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+
+const dateText = (value) => {
+  if (!value) return "â€”";
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-GB");
+};
+
+function StatusBadge({ status }) {
+  const styles = {
+    PAID: "bg-emerald-100 text-emerald-700",
+    PARTIALLY_PAID: "bg-amber-100 text-amber-700",
+    PENDING: "bg-blue-100 text-blue-700",
+    UNPAID: "bg-red-100 text-red-700",
+  };
+
+  return (
+    <span
+      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+        styles[status] || "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {(status || "UNKNOWN").replaceAll("_", " ")}
+    </span>
+  );
+}
+
+export default function PaymentManagement() {
+  const [bookings, setBookings] = useState([]);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("ALL");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [processingId, setProcessingId] = useState(null);
+
+  const loadOverview = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const data = await getPaymentOverview();
+      setBookings(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message || "Failed to load payment overview.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadOverview();
+  }, [loadOverview]);
+
+  const filteredBookings = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return bookings.filter((booking) => {
+      const matchesSearch = [
+        booking.booking_reference,
+        booking.customer_name,
+        booking.package_name,
+        booking.invoice_number,
+      ]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(query));
+
+      const matchesFilter =
+        filter === "ALL" || booking.payment_summary === filter;
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [bookings, search, filter]);
+
+  const totals = useMemo(
+    () =>
+      filteredBookings.reduce(
+        (sum, booking) => ({
+          bookings: sum.bookings + 1,
+          received: sum.received + Number(booking.paid_amount || 0),
+          outstanding: sum.outstanding + Number(booking.balance || 0),
+          unpaid:
+            sum.unpaid +
+            (Number(booking.balance || 0) > 0 ? 1 : 0),
+        }),
+        { bookings: 0, received: 0, outstanding: 0, unpaid: 0 }
+      ),
+    [filteredBookings]
+  );
+
+  async function handlePaymentAction(payment, statusName) {
+    const actionText =
+      statusName === "PAID"
+        ? "confirm that the payment has actually been received"
+        : statusName === "FAILED"
+          ? "mark this payment request as failed"
+          : "mark this payment as refunded";
+
+    if (!window.confirm(`Please ${actionText}. Continue?`)) return;
+
+    setProcessingId(payment.payment_id);
+    setActionError("");
+
+    try {
+      await updatePaymentStatus(payment.payment_id, statusName);
+      await loadOverview();
+    } catch (err) {
+      setActionError(err.message || "Could not update payment status.");
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+              Finance and operations
+            </p>
+            <h1 className="mt-1 text-3xl font-bold text-slate-900">
+              Payment Management
+            </h1>
+            <p className="mt-2 text-slate-600">
+              Track booking balances and verify customer payment requests.
+            </p>
+          </div>
+
+          <button
+            onClick={loadOverview}
+            disabled={loading}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          >
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
+            {error}
+          </div>
+        )}
+
+        {actionError && (
+          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
+            {actionError}
+          </div>
+        )}
+
+        <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <p className="text-sm text-slate-500">Bookings shown</p>
+            <p className="mt-2 text-2xl font-bold text-slate-900">
+              {totals.bookings}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <p className="text-sm text-slate-500">Payments received</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-700">
+              {money(totals.received)}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <p className="text-sm text-slate-500">Outstanding balance</p>
+            <p className="mt-2 text-2xl font-bold text-red-700">
+              {money(totals.outstanding)}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <p className="text-sm text-slate-500">Bookings with balance</p>
+            <p className="mt-2 text-2xl font-bold text-amber-700">
+              {totals.unpaid}
+            </p>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row">
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search booking, customer, package, or invoice..."
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+            />
+
+            <select
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              className="rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-teal-600"
+            >
+              <option value="ALL">All payment statuses</option>
+              <option value="UNPAID">Unpaid</option>
+              <option value="PENDING">Payment pending</option>
+              <option value="PARTIALLY_PAID">Partially paid</option>
+              <option value="PAID">Paid</option>
+            </select>
+          </div>
+
+          {loading ? (
+            <p className="py-12 text-center text-slate-500">
+              Loading payment records...
+            </p>
+          ) : filteredBookings.length === 0 ? (
+            <p className="py-12 text-center text-slate-500">
+              No bookings match your search.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1050px] text-left text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Booking / Customer</th>
+                    <th className="px-4 py-3">Tour package</th>
+                    <th className="px-4 py-3">Total</th>
+                    <th className="px-4 py-3">Paid</th>
+                    <th className="px-4 py-3">Balance</th>
+                    <th className="px-4 py-3">Payment status</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {filteredBookings.map((booking) => (
+                    <tr key={booking.booking_id} className="align-top hover:bg-slate-50">
+                      <td className="px-4 py-4">
+                        <p className="font-semibold text-slate-900">
+                          {booking.booking_reference}
+                        </p>
+                        <p className="mt-1 text-slate-600">
+                          {booking.customer_name}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Travel: {dateText(booking.travel_date)}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Invoice: {booking.invoice_number || "Not generated"}
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-4 text-slate-700">
+                        {booking.package_name || "â€”"}
+                        <p className="mt-1 text-xs text-slate-500">
+                          Booking: {booking.booking_status || "â€”"}
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-4 font-medium text-slate-800">
+                        {money(booking.total_amount)}
+                      </td>
+
+                      <td className="px-4 py-4 font-medium text-emerald-700">
+                        {money(booking.paid_amount)}
+                      </td>
+
+                      <td className="px-4 py-4 font-semibold text-red-700">
+                        {money(booking.balance)}
+                      </td>
+
+                      <td className="px-4 py-4">
+                        <StatusBadge status={booking.payment_summary} />
+
+                        {booking.pending_payments?.length > 0 && (
+                          <div className="mt-3 min-w-64 space-y-3">
+                            {booking.pending_payments.map((payment) => (
+                              <div
+                                key={payment.payment_id}
+                                className="rounded-lg border border-slate-200 p-3"
+                              >
+                                <p className="font-semibold text-slate-800">
+                                  {payment.transaction_reference}
+                                </p>
+                                <p className="mt-1 text-slate-600">
+                                  {money(payment.amount)} Â·{" "}
+                                  {payment.payment_method || "Payment method"}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Request status: {payment.payment_status}
+                                </p>
+
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <button
+                                    disabled={processingId === payment.payment_id}
+                                    onClick={() =>
+                                      handlePaymentAction(payment, "PAID")
+                                    }
+                                    className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                                  >
+                                    Confirm paid
+                                  </button>
+                                  <button
+                                    disabled={processingId === payment.payment_id}
+                                    onClick={() =>
+                                      handlePaymentAction(payment, "FAILED")
+                                    }
+                                    className="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                  >
+                                    Mark failed
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="mt-4 text-xs text-slate-500">
+            Only payments marked PAID count as received. Verify the actual
+            transaction before confirming payment.
+          </p>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+
+========== frontend/src/pages/Invoices.jsx ==========
+
+import { useEffect, useState } from "react";
+import {
+  createInvoice,
+  getInvoice,
+  getInvoices,
+} from "../services/api";
+
+function formatMoney(value) {
+  const amount = Number(value);
+
+  return Number.isFinite(amount)
+    ? `à§³${amount.toLocaleString("en-BD", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`
+    : "â€”";
+}
+
+function formatDate(value) {
+  if (!value) return "â€”";
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime())
+    ? "â€”"
+    : date.toLocaleDateString("en-GB");
+}
+
+function Invoices() {
+  const [invoices, setInvoices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [bookingId, setBookingId] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+
+  async function loadInvoices() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await getInvoices();
+
+      if (!Array.isArray(response)) {
+        throw new Error("The server returned an unexpected invoice list.");
+      }
+
+      setInvoices(response);
+    } catch (err) {
+      setError(err?.message || "Could not load invoices.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadInvoices();
+  }, []);
+
+  async function handleCreateInvoice(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setSelectedInvoice(null);
+
+    const parsedBookingId = Number(bookingId);
+
+    if (
+      !Number.isSafeInteger(parsedBookingId) ||
+      parsedBookingId <= 0
+    ) {
+      setError("Enter a valid positive booking ID.");
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      const response = await createInvoice({
+        booking_id: parsedBookingId,
+      });
+
+      setMessage(
+        `Invoice ${response.invoice_number} created successfully.`
+      );
+      setBookingId("");
+      await loadInvoices();
+    } catch (err) {
+      setError(err?.message || "Could not create the invoice.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleViewInvoice(invoiceId) {
+    setError("");
+    setMessage("");
+    setSelectedInvoice(null);
+    setDetailsLoading(true);
+
+    try {
+      const invoice = await getInvoice(invoiceId);
+      setSelectedInvoice(invoice);
+    } catch (err) {
+      setError(err?.message || "Could not load invoice details.");
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+
+  return (
+    <main className="mx-auto max-w-7xl space-y-6 p-6">
+      <header>
+        <h1 className="text-3xl font-bold text-slate-900">
+          Invoice Management
+        </h1>
+        <p className="mt-2 text-slate-600">
+          View invoices and create invoices for existing bookings.
+        </p>
+      </header>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900">
+          Create an Invoice
+        </h2>
+
+        <form
+          onSubmit={handleCreateInvoice}
+          className="mt-4 flex flex-col gap-3 sm:flex-row"
+        >
+          <input
+            type="number"
+            min="1"
+            step="1"
+            required
+            value={bookingId}
+            onChange={(event) => setBookingId(event.target.value)}
+            placeholder="Enter booking ID"
+            className="w-full rounded-lg border border-slate-300 px-4 py-2 outline-none focus:border-teal-600 sm:max-w-xs"
+          />
+
+          <button
+            type="submit"
+            disabled={creating}
+            className="rounded-lg bg-teal-700 px-5 py-2 font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {creating ? "Creating..." : "Create Invoice"}
+          </button>
+        </form>
+
+        <p className="mt-3 text-sm text-slate-500">
+          The booking must exist and must not already have an invoice.
+          Invoice totals are calculated by the server.
+        </p>
+      </section>
+
+      {error && (
+        <div
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
+        >
+          {error}
+        </div>
+      )}
+
+      {message && (
+        <div
+          role="status"
+          className="rounded-lg border border-green-200 bg-green-50 p-4 text-green-800"
+        >
+          {message}
+        </div>
+      )}
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between gap-4 border-b border-slate-200 p-5">
+          <h2 className="text-lg font-semibold text-slate-900">
+            All Invoices
+          </h2>
+
+          <button
+            type="button"
+            onClick={loadInvoices}
+            disabled={loading}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="p-5 text-slate-600">Loading invoices...</p>
+        ) : invoices.length === 0 ? (
+          <p className="p-5 text-slate-600">No invoices found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="whitespace-nowrap p-4">Invoice Number</th>
+                  <th className="whitespace-nowrap p-4">Booking ID</th>
+                  <th className="whitespace-nowrap p-4">Invoice Date</th>
+                  <th className="whitespace-nowrap p-4">Total</th>
+                  <th className="whitespace-nowrap p-4">Status</th>
+                  <th className="whitespace-nowrap p-4">Action</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {invoices.map((invoice) => (
+                  <tr
+                    key={invoice.invoice_id}
+                    className="border-t border-slate-100 hover:bg-slate-50"
+                  >
+                    <td className="whitespace-nowrap p-4 font-medium text-slate-900">
+                      {invoice.invoice_number}
+                    </td>
+                    <td className="p-4">{invoice.booking_id}</td>
+                    <td className="whitespace-nowrap p-4">
+                      {formatDate(invoice.invoice_date)}
+                    </td>
+                    <td className="whitespace-nowrap p-4">
+                      {formatMoney(invoice.total_amount)}
+                    </td>
+                    <td className="p-4">
+                      <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">
+                        {invoice.invoice_status}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleViewInvoice(invoice.invoice_id)
+                        }
+                        className="whitespace-nowrap font-medium text-teal-700 hover:underline"
+                      >
+                        View Details
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {detailsLoading && (
+        <p className="text-slate-600">Loading invoice details...</p>
+      )}
+
+      {selectedInvoice && (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">
+                {selectedInvoice.invoice_number}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Booking ID: {selectedInvoice.booking_id}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSelectedInvoice(null)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+            >
+              Close Details
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Subtotal</p>
+              <p className="mt-1 font-semibold">
+                {formatMoney(selectedInvoice.subtotal)}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Discount</p>
+              <p className="mt-1 font-semibold">
+                {formatMoney(selectedInvoice.discount_amount)}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Tax</p>
+              <p className="mt-1 font-semibold">
+                {formatMoney(selectedInvoice.tax_amount)}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-teal-50 p-4">
+              <p className="text-sm text-teal-800">Total Amount</p>
+              <p className="mt-1 font-bold text-teal-900">
+                {formatMoney(selectedInvoice.total_amount)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+            <p>
+              Invoice date: {formatDate(selectedInvoice.invoice_date)}
+            </p>
+            <p>
+              Due date: {formatDate(selectedInvoice.due_date)}
+            </p>
+            <p>Status: {selectedInvoice.invoice_status}</p>
+            <p>Generated by user ID: {selectedInvoice.generated_by ?? "â€”"}</p>
+          </div>
+
+          <h3 className="mt-6 font-semibold text-slate-900">
+            Invoice Items
+          </h3>
+
+          {!selectedInvoice.items?.length ? (
+            <p className="mt-2 text-sm text-slate-500">
+              No line items were recorded for this invoice.
+            </p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="p-3">Description</th>
+                    <th className="p-3">Quantity</th>
+                    <th className="p-3">Unit Price</th>
+                    <th className="p-3">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedInvoice.items.map((item) => (
+                    <tr
+                      key={item.invoice_item_id}
+                      className="border-t border-slate-100"
+                    >
+                      <td className="p-3">{item.description}</td>
+                      <td className="p-3">{item.quantity}</td>
+                      <td className="p-3">{formatMoney(item.unit_price)}</td>
+                      <td className="p-3">{formatMoney(item.line_total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+    </main>
+  );
+}
+
+export default Invoices;
+
+
+========== frontend/src/services/api.js ==========
+ 
+const API_BASE_URL = "http://127.0.0.1:5000/api";
+
+// ------------------------------
+// AUTHENTICATED REQUEST HELPER
+// ------------------------------
+
+async function authenticatedRequest(path, options = {}) {
+  const token = sessionStorage.getItem("access_token");
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...options.headers,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || data.msg || `Request failed (${response.status})`
+    );
+  }
+
+  return data;
+}
+
+// ------------------------------
+// DESTINATIONS
+// ------------------------------
+
+export async function getDestinations() {
+  const response = await fetch(`${API_BASE_URL}/destinations/`);
+
+  if (!response.ok) {
+    throw new Error("Failed to load destinations");
+  }
+
+  return response.json();
+}
+
+export async function createDestination(destination) {
+  return authenticatedRequest("/destinations/", {
+    method: "POST",
+    body: JSON.stringify(destination),
+  });
+}
+
+export async function updateDestination(destinationId, destination) {
+  return authenticatedRequest(`/destinations/${destinationId}`, {
+    method: "PUT",
+    body: JSON.stringify(destination),
+  });
+}
+
+export async function deleteDestination(destinationId) {
+  return authenticatedRequest(`/destinations/${destinationId}`, {
+    method: "DELETE",
+  });
+}
+
+
+ // ------------------------------
+// TOUR PACKAGES
+// ------------------------------
+
+export async function getPackages() {
+  const response = await fetch(`${API_BASE_URL}/packages/`);
+
+  if (!response.ok) {
+    throw new Error("Failed to load tour packages");
+  }
+
+  return response.json();
+}
+
+export async function createPackage(packageData) {
+  return authenticatedRequest("/packages/", {
+    method: "POST",
+    body: JSON.stringify(packageData),
+  });
+}
+
+export async function updatePackage(packageId, packageData) {
+  return authenticatedRequest(`/packages/${packageId}`, {
+    method: "PUT",
+    body: JSON.stringify(packageData),
+  });
+}
+
+export async function deletePackage(packageId) {
+  return authenticatedRequest(`/packages/${packageId}`, {
+    method: "DELETE",
+  });
+}
+
+
+ // ------------------------------
+// TOUR SCHEDULES
+// ------------------------------
+
+export async function getSchedules(packageId) {
+  const query = packageId
+    ? `?package_id=${encodeURIComponent(packageId)}`
+    : "";
+
+  const response = await fetch(`${API_BASE_URL}/schedules/${query}`);
+
+  if (!response.ok) {
+    throw new Error("Failed to load tour schedules");
+  }
+
+  return response.json();
+}
+
+export async function getScheduleAvailability(scheduleId) {
+  const response = await fetch(
+    `${API_BASE_URL}/schedules/${encodeURIComponent(scheduleId)}/availability`
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to load seat availability");
+  }
+
+  return data;
+}
+
+
+export async function createSchedule(scheduleData) {
+  return authenticatedRequest("/schedules/", {
+    method: "POST",
+    body: JSON.stringify(scheduleData),
+  });
+}
+
+export async function updateSchedule(scheduleId, scheduleData) {
+  return authenticatedRequest(`/schedules/${scheduleId}`, {
+    method: "PUT",
+    body: JSON.stringify(scheduleData),
+  });
+}
+
+export async function cancelSchedule(scheduleId) {
+  return authenticatedRequest(`/schedules/${scheduleId}`, {
+    method: "DELETE",
+  });
+}
+
+
+
+
+// ------------------------------
+// LOGIN
+// ------------------------------
+
+export async function loginUser(credentials) {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(credentials),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || data.msg || "Login failed");
+  }
+
+  return data;
+}
+
+// ------------------------------
+// CURRENT USER
+// ------------------------------
+
+export async function getCurrentUser(token) {
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || data.msg || "Failed to get current user");
+  }
+
+  return data;
+}
+
+// ------------------------------
+// REGISTRATION
+// ------------------------------
+
+export async function registerUser(userData) {
+  const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(userData),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || data.msg || "Registration failed");
+  }
+
+  return data;
+}
+
+
+export async function createOwnCustomerProfile(profileData) {
+  return authenticatedRequest("/customers/me", {
+    method: "POST",
+    body: JSON.stringify(profileData),
+  });
+}
+
+export async function getOwnCustomerProfile() {
+  const token = sessionStorage.getItem("access_token");
+
+  const response = await fetch(`${API_BASE_URL}/customers/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.status === 404 && data.profile_exists === false) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || data.msg || `Request failed (${response.status})`
+    );
+  }
+
+  return data.customer;
+}
+
+export async function updateOwnCustomerProfile(profileData) {
+  return authenticatedRequest("/customers/me", {
+    method: "PUT",
+    body: JSON.stringify(profileData),
+  });
+}
+
+
+export async function changePassword(passwordData) {
+  return authenticatedRequest("/auth/change-password", {
+    method: "PUT",
+    body: JSON.stringify(passwordData),
+  });
+}
+
+// ------------------------------
+// BOOKINGS (customer sees own bookings; staff/admin see all)
+// ------------------------------
+
+export async function getBookings() {
+  return authenticatedRequest("/bookings/");
+}
+
+export async function createBooking(bookingData) {
+  // Send only package_id, schedule_id, number_of_travelers, special_request.
+  // The backend derives the customer, booking reference, status, and price.
+  return authenticatedRequest("/bookings/", {
+    method: "POST",
+    body: JSON.stringify({
+      package_id: bookingData.package_id,
+      schedule_id: bookingData.schedule_id,
+      number_of_travelers: bookingData.number_of_travelers,
+      special_request: bookingData.special_request || "",
+    }),
+  });
+}
+
+export async function getBooking(bookingId) {
+  return authenticatedRequest(`/bookings/${encodeURIComponent(bookingId)}`);
+}
+
+
+export const getMyBookings = async () => {
+  return authenticatedRequest("/bookings/mine");
+};
+
+
+/* ==============================
+   INVOICES
+============================== */
+
+export async function getInvoices() {
+  return authenticatedRequest("/invoices/");
+}
+
+export async function getInvoice(invoiceId) {
+  return authenticatedRequest(
+    `/invoices/${encodeURIComponent(invoiceId)}`
+  );
+}
+
+export async function getInvoiceByBooking(bookingId) {
+  return authenticatedRequest(
+    `/invoices/booking/${encodeURIComponent(bookingId)}`
+  );
+}
+
+export async function createInvoice(invoiceData) {
+  return authenticatedRequest("/invoices/", {
+    method: "POST",
+    body: JSON.stringify(invoiceData),
+  });
+}
+
+
+
+/* ==============================
+   PAYMENT MANAGEMENT
+============================== */
+
+export async function getPaymentOverview() {
+  return authenticatedRequest("/payments/overview");
+}
+
+export async function updatePaymentStatus(paymentId, statusName) {
+  return authenticatedRequest(
+    `/payments/${encodeURIComponent(paymentId)}/status`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ status_name: statusName }),
+    }
+  );
+}

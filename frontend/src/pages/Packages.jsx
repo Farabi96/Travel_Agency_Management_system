@@ -1,4 +1,4 @@
-
+ 
  
 import { useEffect, useState } from "react";
 import {
@@ -23,6 +23,7 @@ import {
   createSchedule,
   updateSchedule,
   cancelSchedule,
+  createBooking,
 } from "../services/api";
 
 function formatDateTime(value) {
@@ -92,6 +93,41 @@ export default function Packages() {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleFormError, setScheduleFormError] = useState("");
   const [scheduleFormMessage, setScheduleFormMessage] = useState("");
+
+  const [bookingTarget, setBookingTarget] = useState(null);
+  const [bookingTravelers, setBookingTravelers] = useState("1");
+  const [bookingSpecialRequest, setBookingSpecialRequest] = useState("");
+  const [bookingSaving, setBookingSaving] = useState(false);
+  const [bookingError, setBookingError] = useState("");
+  const [bookingMessage, setBookingMessage] = useState("");
+
+  async function submitBooking(packageItem, schedule) {
+    if (role !== "CUSTOMER" || !sessionStorage.getItem("access_token")) {
+      window.location.href = "/login";
+      return;
+    }
+
+    setBookingSaving(true);
+    setBookingError("");
+    setBookingMessage("");
+    try {
+      const result = await createBooking({
+        package_id: packageItem.package_id,
+        schedule_id: schedule.schedule_id,
+        number_of_travelers: Number(bookingTravelers),
+        special_request: bookingSpecialRequest.trim(),
+      });
+      setBookingMessage(
+        `Booking created! Reference: ${result.booking_reference}. Total: ৳${Number(result.total_amount).toLocaleString("en-BD")}. Status: ${result.status_name || "Pending"}.`
+      );
+      setBookingTravelers("1");
+      setBookingSpecialRequest("");
+    } catch (err) {
+      setBookingError(err.message || "Could not create booking.");
+    } finally {
+      setBookingSaving(false);
+    }
+  }
 
 
 
@@ -1127,20 +1163,76 @@ export default function Packages() {
                                   </div>
                                 )}
 
-                                <button
-                                  type="button"
-                                  disabled={!canBook}
-                                  onClick={() =>
-                                    window.alert(
-                                      "Schedule selected. The booking form will be added in the next step."
-                                    )
-                                  }
-                                  className="mt-4 w-full rounded-lg border border-teal-700 px-3 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-                                >
-                                  {canBook
-                                    ? "Select This Schedule"
-                                    : "Currently Unavailable"}
-                                </button>
+                                {!canManage && (
+                                  <button
+                                    type="button"
+                                    disabled={!canBook}
+                                    onClick={() => {
+                                      if (role !== "CUSTOMER" || !sessionStorage.getItem("access_token")) {
+                                        window.location.href = "/login";
+                                        return;
+                                      }
+                                      setBookingTarget({ packageItem: item, schedule });
+                                      setBookingTravelers("1");
+                                      setBookingSpecialRequest("");
+                                      setBookingError("");
+                                      setBookingMessage("");
+                                    }}
+                                    className="mt-4 w-full rounded-lg border border-teal-700 px-3 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                                  >
+                                    {canBook
+                                      ? (role === "CUSTOMER" ? "Book This Schedule" : "Login to Book")
+                                      : "Currently Unavailable"}
+                                  </button>
+                                )}
+
+                                {bookingTarget?.schedule.schedule_id === schedule.schedule_id && (
+                                  <form
+                                    className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4"
+                                    onSubmit={(event) => {
+                                      event.preventDefault();
+                                      submitBooking(bookingTarget.packageItem, bookingTarget.schedule);
+                                    }}
+                                  >
+                                    <h4 className="font-semibold text-slate-900">Confirm your booking</h4>
+                                    <label className="block text-sm font-medium text-slate-700">
+                                      Number of travelers
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max={seats?.available_seats || 1}
+                                        required
+                                        value={bookingTravelers}
+                                        onChange={(event) => setBookingTravelers(event.target.value)}
+                                        className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                                      />
+                                    </label>
+                                    <p className="text-sm text-slate-600">
+                                      Estimated total: ৳{(Number(item.base_price || 0) * Math.max(1, Number(bookingTravelers) || 1)).toLocaleString("en-BD")}
+                                    </p>
+                                    <label className="block text-sm font-medium text-slate-700">
+                                      Special request (optional)
+                                      <textarea
+                                        rows="2"
+                                        value={bookingSpecialRequest}
+                                        onChange={(event) => setBookingSpecialRequest(event.target.value)}
+                                        maxLength={1000}
+                                        className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                                        placeholder="Any special requirements?"
+                                      />
+                                    </label>
+                                    {bookingError && <p className="text-sm text-red-700">{bookingError}</p>}
+                                    {bookingMessage && <p className="text-sm text-green-700">{bookingMessage}</p>}
+                                    <div className="flex gap-2">
+                                      <button type="submit" disabled={bookingSaving} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                                        {bookingSaving ? "Creating booking..." : "Confirm Booking"}
+                                      </button>
+                                      <button type="button" onClick={() => setBookingTarget(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </form>
+                                )}
                               </div>
                             );
                           })}
