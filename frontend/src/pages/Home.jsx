@@ -12,6 +12,7 @@ import {
   Headphones,
 } from "lucide-react";
 import { getDestinations, getPackages } from "../services/api";
+import { useNavigate } from "react-router-dom";
 
 const fallbackDestinations = [
   {
@@ -40,6 +41,7 @@ const packageImages = [
   "photo-1510414842594-a61c69b5ae57",
 ];
 
+
 function photoUrl(photoId, width = 900) {
   return `https://images.unsplash.com/${photoId}?auto=format&fit=crop&w=${width}&q=80`;
 }
@@ -66,6 +68,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
   let active = true;
@@ -282,15 +285,25 @@ const visibleDestinations = destinations.filter((destination) => {
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {visibleDestinations.map((destination, index) => (
-                <article
-                  key={destination.destination_id ?? destination.name}
-                  className="group overflow-hidden rounded-2xl border border-slate-200 bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl"
-                >
+                 <article
+  key={destination.destination_id ?? destination.name}
+  onClick={() => navigate("/login")}
+  onKeyDown={(event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      navigate("/login");
+    }
+  }}
+  role="link"
+  tabIndex={0}
+  className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl"
+>
                   <div className="relative h-56 overflow-hidden">
                     <img
-                      src={photoUrl(
-                        destinationImages[index % destinationImages.length]
-                      )}
+                       src={
+  destination.image_url ||
+  photoUrl(destinationImages[index % destinationImages.length])
+}
                       alt={destination.name}
                       loading="lazy"
                       className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
@@ -342,15 +355,26 @@ const visibleDestinations = destinations.filter((destination) => {
               {packages
                 .filter((item) => item.package_status === "ACTIVE")
                 .map((item, index) => (
-                  <article
-                    key={item.package_id}
-                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-xl"
-                  >
+                   <article
+  key={item.package_id}
+  onClick={() => navigate("/login")}
+  onKeyDown={(event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      navigate("/login");
+    }
+  }}
+  role="link"
+  tabIndex={0}
+  className="cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-xl"
+>
+
                     <div className="relative h-52">
                       <img
-                        src={photoUrl(
-                          packageImages[index % packageImages.length]
-                        )}
+                         src={
+  item.image_url ||
+  photoUrl(packageImages[index % packageImages.length])
+}
                         alt={item.package_name}
                         loading="lazy"
                         className="h-full w-full object-cover"

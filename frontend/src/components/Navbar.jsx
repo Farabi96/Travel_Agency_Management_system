@@ -133,6 +133,51 @@ export default function Navbar() {
     isLoggedIn &&
     ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
 
+
+  async function handleNotificationToggle() {
+    const willOpen = !notificationsOpen;
+    setNotificationsOpen(willOpen);
+
+    if (!willOpen || !isCustomer || notificationsLoading) {
+      return;
+    }
+
+    const unreadNotifications = notifications.filter(
+      (notification) => !notification.is_read
+    );
+
+    if (unreadNotifications.length === 0) {
+      return;
+    }
+
+    setNotificationsError("");
+
+    // Keep every notification in history; only mark it as read.
+    for (const notification of unreadNotifications) {
+      try {
+        await markNotificationRead(notification.notification_id);
+
+        setNotifications((current) =>
+          current.map((item) =>
+            item.notification_id === notification.notification_id
+              ? {
+                  ...item,
+                  is_read: true,
+                  read_at: new Date().toISOString(),
+                }
+              : item
+          )
+        );
+      } catch (error) {
+        setNotificationsError(
+          error.message || "Could not mark notifications as read."
+        );
+      }
+    }
+  }
+
+
+
   function renderNotificationPanel() {
     return (
       <div className="absolute right-0 top-full z-[60] mt-3 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl sm:w-96">
@@ -242,9 +287,7 @@ export default function Navbar() {
       <div className="relative">
         <button
           type="button"
-          onClick={() =>
-            setNotificationsOpen((previous) => !previous)
-          }
+           onClick={handleNotificationToggle}
           aria-label={`Notifications, ${unreadCount} unread`}
           aria-expanded={notificationsOpen}
           className="relative flex items-center gap-2 rounded-full border border-slate-200 p-2.5 text-slate-700 transition hover:bg-slate-100"

@@ -6,6 +6,7 @@ import {
   createDestination,
   updateDestination,
   deleteDestination,
+  uploadImage,
 } from "../services/api";
 
 const emptyForm = {
@@ -30,6 +31,8 @@ export default function Destinations() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
 
   const token = sessionStorage.getItem("access_token");
   const user = JSON.parse(sessionStorage.getItem("user") || "null");
@@ -82,6 +85,8 @@ export default function Destinations() {
   function openCreateForm() {
     setEditingId(null);
     setForm({ ...emptyForm });
+    setSelectedImage(null);
+    setImagePreview("");
     setError("");
     setMessage("");
     setShowForm(true);
@@ -100,6 +105,8 @@ export default function Destinations() {
       image_url: destination.image_url || "",
       status: destination.status || "ACTIVE",
     });
+    setSelectedImage(null);
+    setImagePreview(destination.image_url || "");
     setError("");
     setMessage("");
     setShowForm(true);
@@ -110,19 +117,29 @@ export default function Destinations() {
     setForm((current) => ({ ...current, [name]: value }));
   }
 
+  function handleImageChange(event) {
+    const file = event.target.files?.[0] || null;
+    setSelectedImage(file);
+    if (file) setImagePreview(URL.createObjectURL(file));
+    else setImagePreview(form.image_url || "");
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
     setError("");
     setMessage("");
 
-    const payload = {
-      ...form,
-      latitude: form.latitude === "" ? null : Number(form.latitude),
-      longitude: form.longitude === "" ? null : Number(form.longitude),
-    };
-
     try {
+      const uploadedImage = selectedImage
+        ? await uploadImage(selectedImage, "destination")
+        : null;
+      const payload = {
+        ...form,
+        image_url: uploadedImage?.image_url || form.image_url || null,
+        latitude: form.latitude === "" ? null : Number(form.latitude),
+        longitude: form.longitude === "" ? null : Number(form.longitude),
+      };
       if (editingId !== null) {
         await updateDestination(editingId, payload);
         setMessage("Destination updated successfully.");
@@ -133,6 +150,8 @@ export default function Destinations() {
 
       setShowForm(false);
       setForm({ ...emptyForm });
+      setSelectedImage(null);
+      setImagePreview("");
       setEditingId(null);
       await loadDestinations();
     } catch (err) {
@@ -229,7 +248,6 @@ export default function Destinations() {
                 ["upazila", "Upazila", false],
                 ["latitude", "Latitude", false],
                 ["longitude", "Longitude", false],
-                ["image_url", "Image URL", false],
               ].map(([name, label, required]) => (
                 <label key={name} className="block text-sm font-medium text-slate-700">
                   {label}
@@ -270,11 +288,24 @@ export default function Destinations() {
               </label>
             </div>
 
-            {form.image_url && (
+            <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-4">
+              <label className="block text-sm font-semibold text-slate-700">
+                Destination photo
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleImageChange}
+                  className="mt-2 block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-teal-50 file:px-4 file:py-2 file:font-semibold file:text-teal-800 hover:file:bg-teal-100"
+                />
+              </label>
+              <p className="mt-2 text-xs text-slate-500">JPG, PNG or WebP · maximum 5 MB. Choose a new file to replace the current photo.</p>
+            </div>
+
+            {imagePreview && (
               <div className="mt-4">
-                <p className="mb-2 text-sm text-slate-600">Image preview</p>
+                <p className="mb-2 text-sm text-slate-600">Photo preview</p>
                 <img
-                  src={form.image_url}
+                  src={imagePreview}
                   alt="Destination preview"
                   className="h-40 w-full rounded-xl object-cover sm:w-72"
                   onError={(event) => {

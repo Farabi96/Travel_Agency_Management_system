@@ -26,6 +26,11 @@ class TourPackage(db.Model):
         nullable=True
     )
 
+    image_url = db.Column(
+        db.String(500),
+        nullable=True
+    )
+
     duration_days = db.Column(
         db.Integer,
         nullable=False

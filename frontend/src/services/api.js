@@ -15,7 +15,7 @@ async function authenticatedRequest(path, options = {}) {
       ...options.headers,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-  });
+  });   
 
   const data = await response.json().catch(() => ({}));
 
@@ -60,6 +60,26 @@ export async function deleteDestination(destinationId) {
   return authenticatedRequest(`/destinations/${destinationId}`, {
     method: "DELETE",
   });
+}
+
+// Upload an image to Flask. Do not set Content-Type manually for FormData;
+// the browser must add the multipart boundary.
+export async function uploadImage(file, entityType) {
+  const token = sessionStorage.getItem("access_token");
+  const body = new FormData();
+  body.append("image", file);
+  body.append("entity_type", entityType);
+
+  const response = await fetch(`${API_BASE_URL}/uploads/`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || data.msg || `Image upload failed (${response.status})`);
+  }
+  return data;
 }
 
 
@@ -415,6 +435,23 @@ export async function markNotificationRead(notificationId) {
     `/notifications/${encodeURIComponent(notificationId)}/read`,
     {
       method: "PUT",
+    }
+  );
+}
+
+
+// Get reviews submitted by the currently logged-in customer
+export async function getMyReviews() {
+  return authenticatedRequest("/reviews/");
+}
+
+// Update an existing customer review
+export async function updateReview(reviewId, reviewData) {
+  return authenticatedRequest(
+    `/reviews/${encodeURIComponent(reviewId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(reviewData),
     }
   );
 }

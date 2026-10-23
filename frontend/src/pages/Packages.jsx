@@ -1,5 +1,4 @@
  
- 
 import { useEffect, useState } from "react";
 import PackageReviews from "../components/PackageReviews";
 import {
@@ -25,6 +24,7 @@ import {
   updateSchedule,
   cancelSchedule,
   createBooking,
+  uploadImage,
 } from "../services/api";
 
 function formatDateTime(value) {
@@ -77,9 +77,12 @@ export default function Packages() {
     min_travelers: "1",
     package_status: "DRAFT",
     destination_ids: [],
+    image_url: "",
   };
 
   const [form, setForm] = useState({ ...emptyForm });
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
 
   
   const emptyScheduleForm = {
@@ -194,6 +197,8 @@ export default function Packages() {
   function openCreateForm() {
     setEditingId(null);
     setForm({ ...emptyForm });
+    setSelectedImage(null);
+    setImagePreview("");
     setFormError("");
     setFormMessage("");
     setShowForm(true);
@@ -212,7 +217,10 @@ export default function Packages() {
       min_travelers: String(item.min_travelers ?? 1),
       package_status: item.package_status || "DRAFT",
       destination_ids: (item.destination_ids || []).map(Number),
+      image_url: item.image_url || "",
     });
+    setSelectedImage(null);
+    setImagePreview(item.image_url || "");
     setFormError("");
     setFormMessage("");
     setShowForm(true);
@@ -221,6 +229,13 @@ export default function Packages() {
   function handleFormChange(event) {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  function handleImageChange(event) {
+    const file = event.target.files?.[0] || null;
+    setSelectedImage(file);
+    if (file) setImagePreview(URL.createObjectURL(file));
+    else setImagePreview(form.image_url || "");
   }
 
   function handleDestinationToggle(destinationId, checked) {
@@ -247,6 +262,7 @@ export default function Packages() {
       return;
     }
 
+
     const payload = {
       package_code: form.package_code.trim(),
       package_name: form.package_name.trim(),
@@ -258,6 +274,7 @@ export default function Packages() {
       min_travelers: Number(form.min_travelers),
       package_status: form.package_status,
       destination_ids: form.destination_ids,
+      image_url: form.image_url || null,
     };
 
     if (
@@ -280,6 +297,11 @@ export default function Packages() {
     setSaving(true);
 
     try {
+      if (selectedImage) {
+        const uploadedImage = await uploadImage(selectedImage, "package");
+        payload.image_url = uploadedImage.image_url;
+      }
+
       if (editingId !== null) {
         await updatePackage(editingId, payload);
         setFormMessage("Package updated successfully.");
@@ -291,6 +313,8 @@ export default function Packages() {
       setShowForm(false);
       setEditingId(null);
       setForm({ ...emptyForm });
+      setSelectedImage(null);
+      setImagePreview("");
       await loadPackages();
     } catch (err) {
       setFormError(err.message || "Could not save the package.");
@@ -715,6 +739,25 @@ export default function Packages() {
               </label>
             </div>
 
+            <div className="rounded-xl border border-dashed border-slate-300 p-4">
+              <label className="block text-sm font-semibold text-slate-700">
+                Package photo
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleImageChange}
+                  className="mt-2 block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-teal-50 file:px-4 file:py-2 file:font-semibold file:text-teal-800 hover:file:bg-teal-100"
+                />
+              </label>
+              <p className="mt-2 text-xs text-slate-500">JPG, PNG or WebP · maximum 5 MB. Choose a new file to replace the current photo.</p>
+              {imagePreview && (
+                <div className="mt-4">
+                  <p className="mb-2 text-sm text-slate-600">Photo preview</p>
+                  <img src={imagePreview} alt="Package preview" className="h-40 w-full rounded-xl object-cover sm:w-72" />
+                </div>
+              )}
+            </div>
+
             <label className="block text-sm font-medium text-slate-700">
               Description
               <textarea
@@ -947,9 +990,21 @@ export default function Packages() {
                   key={packageId}
                   className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
                 >
-                  <div className="flex h-40 items-center justify-center bg-gradient-to-br from-teal-700 to-cyan-500 text-white">
-                    <MapPin size={42} />
-                  </div>
+                  {item.image_url ? (
+                    <img
+                      src={item.image_url}
+                      alt={item.package_name}
+                      className="h-40 w-full object-cover"
+                      loading="lazy"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <div className="flex h-40 items-center justify-center bg-gradient-to-br from-teal-700 to-cyan-500 text-white">
+                      <MapPin size={42} />
+                    </div>
+                  )}
 
                   <div className="p-6">
                     <p className="text-xs font-bold uppercase tracking-wider text-teal-700">

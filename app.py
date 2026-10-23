@@ -1,4 +1,5 @@
-﻿from flask import Flask
+﻿import os
+from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from sqlalchemy import text
@@ -23,9 +24,12 @@ from routes.favorite_routes import favorite_bp
 from routes.audit_log_routes import audit_log_bp
 from routes.system_setting_routes import system_setting_bp
 from routes.tour_schedule_routes import tour_schedule_bp
+from routes.upload_routes import upload_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
+app.config["UPLOAD_FOLDER"] = os.path.join(app.root_path, "uploads")
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
 CORS(
     app,
     resources={
@@ -58,6 +62,7 @@ app.register_blueprint(favorite_bp)
 app.register_blueprint(audit_log_bp)
 app.register_blueprint(system_setting_bp)
 app.register_blueprint(tour_schedule_bp)
+app.register_blueprint(upload_bp)
 
 
 @app.route("/")
