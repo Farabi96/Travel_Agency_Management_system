@@ -7,8 +7,8 @@ import {
   getInvoiceByBooking,
   getBookingPayments,
   cancelBooking,
-  getReviewEligibility,
-  createReview,
+  getMyReviews,
+  updateReview,
 } from "../services/api";
 
 const money = (v) => new Intl.NumberFormat("en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 2 }).format(Number(v || 0));
@@ -16,6 +16,11 @@ const dateText = (v) => v ? new Date(v).toLocaleDateString("en-GB") : "Not avail
 
 function MyBookings() {
   const [bookings, setBookings] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [editingReviewId, setEditingReviewId] = useState(null);
+  const [reviewDraft, setReviewDraft] = useState({ rating: "5", comment: "" });
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [activeFilter, setActiveFilter] = useState("ALL");
   const [paymentsByBooking, setPaymentsByBooking] = useState({});
   const [methods, setMethods] = useState([]);
   const [forms, setForms] = useState({});
@@ -25,10 +30,6 @@ function MyBookings() {
   const [message, setMessage] = useState("");
   const [invoiceView, setInvoiceView] = useState(null);
   const [now, setNow] = useState(() => Date.now());
-  const [reviewEligibility, setReviewEligibility] = useState({});
-  const [reviewForms, setReviewForms] = useState({});
-  const [reviewBusyId, setReviewBusyId] = useState(null);
-  const [reviewFeedback, setReviewFeedback] = useState({});
 
   // Refresh countdowns once per second without reloading booking/payment data.
   useEffect(() => {
@@ -69,18 +70,14 @@ function MyBookings() {
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const [bookingData, methodData] = await Promise.all([getMyBookings(), getPaymentMethods()]);
+      const [bookingData, methodData, reviewData] = await Promise.all([
+        getMyBookings(),
+        getPaymentMethods(),
+        getMyReviews().catch(() => []),
+      ]);
       const ownBookings = Array.isArray(bookingData) ? bookingData : [];
       setBookings(ownBookings);
-      const eligibilityEntries = await Promise.all(
-  ownBookings.map(async (booking) => [
-    booking.booking_id,
-    await checkReviewEligibility(booking),
-  ])
-);
-
-setReviewEligibility(Object.fromEntries(eligibilityEntries));
-
+      setReviews(Array.isArray(reviewData) ? reviewData : []);
       setMethods(Array.isArray(methodData) ? methodData.filter(m => m.available_for_request) : []);
       const paymentEntries = await Promise.all(ownBookings.map(async (booking) => {
         try {
@@ -95,6 +92,29 @@ setReviewEligibility(Object.fromEntries(eligibilityEntries));
     finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const getBookingStatus = (booking) => String(
+    booking.status_name || booking.status?.status_name || booking.status || "UNKNOWN"
+  ).trim().toUpperCase();
+
+  const bookingMatchesFilter = (booking, filter) => {
+    const status = getBookingStatus(booking);
+    if (filter === "ALL") return true;
+    if (filter === "SCHEDULED") {
+      return ["PENDING", "CONFIRMED", "BOOKED", "IN_PROGRESS", "ACTIVE"].includes(status);
+    }
+    if (filter === "COMPLETED") return ["COMPLETED", "FINISHED"].includes(status);
+    if (filter === "CANCELLED") return ["CANCELLED", "CANCELED"].includes(status);
+    return true;
+  };
+
+  const filteredBookings = bookings.filter((booking) => bookingMatchesFilter(booking, activeFilter));
+  const bookingFilters = [
+    { id: "ALL", label: "All bookings" },
+    { id: "SCHEDULED", label: "Scheduled / active" },
+    { id: "COMPLETED", label: "Completed" },
+    { id: "CANCELLED", label: "Cancelled" },
+  ];
 
   const setForm = (id, patch) => setForms(old => ({ ...old, [id]: { payment_method_id: "", amount: "", transaction_reference: "", ...(old[id] || {}), ...patch } }));
 
@@ -119,92 +139,6 @@ setReviewEligibility(Object.fromEntries(eligibilityEntries));
     finally { setBusyId(null); }
   }
 
-  
-function setReviewForm(bookingId, patch) {
-  setReviewForms((old) => ({
-    ...old,
-    [bookingId]: {
-      rating: 5,
-      comment: "",
-      ...(old[bookingId] || {}),
-      ...patch,
-    },
-  }));
-}
-
-async function checkReviewEligibility(booking) {
-  const packageId = booking.package_id ?? booking.package?.package_id;
-
-  if (!packageId) {
-    return { eligible: false, error: "Package information is missing." };
-  }
-
-  try {
-    const result = await getReviewEligibility(packageId);
-    const matchingBooking = Array.isArray(result.bookings)
-      && result.bookings.some(
-        (item) => Number(item.booking_id) === Number(booking.booking_id)
-      );
-
-    return {
-      ...result,
-      eligible: Boolean(result.eligible && matchingBooking),
-    };
-  } catch (error) {
-    return {
-      eligible: false,
-      error: error.message || "Could not check review eligibility.",
-    };
-  }
-}
-
-async function submitReview(booking) {
-  const bookingId = booking.booking_id;
-  const packageId = booking.package_id ?? booking.package?.package_id;
-  const form = reviewForms[bookingId] || { rating: 5, comment: "" };
-
-  if (!packageId) {
-    setReviewFeedback((old) => ({
-      ...old,
-      [bookingId]: "Package information is missing.",
-    }));
-    return;
-  }
-
-  setReviewBusyId(bookingId);
-  setReviewFeedback((old) => ({ ...old, [bookingId]: "" }));
-
-  try {
-    const result = await createReview({
-      package_id: Number(packageId),
-      booking_id: Number(bookingId),
-      rating: Number(form.rating),
-      comment: form.comment.trim(),
-    });
-
-    setReviewFeedback((old) => ({
-      ...old,
-      [bookingId]: result.message || "Review submitted successfully.",
-    }));
-
-    setReviewEligibility((old) => ({
-      ...old,
-      [bookingId]: {
-        eligible: false,
-        already_reviewed: true,
-      },
-    }));
-  } catch (error) {
-    setReviewFeedback((old) => ({
-      ...old,
-      [bookingId]: error.message || "Could not submit your review.",
-    }));
-  } finally {
-    setReviewBusyId(null);
-  }
-}
-
-
   async function handleCancelBooking(booking) {
     const currentStatus = String(booking.status_name || booking.status?.status_name || booking.status || "").toUpperCase();
     if (["CANCELLED", "CANCELED", "COMPLETED", "FINISHED"].includes(currentStatus)) return;
@@ -221,6 +155,45 @@ async function submitReview(booking) {
       setError(e.message || "Could not cancel this booking.");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  function beginReviewEdit(review) {
+    setError("");
+    setMessage("");
+    setEditingReviewId(review.review_id);
+    setReviewDraft({
+      rating: String(review.rating ?? 5),
+      comment: review.comment ?? "",
+    });
+  }
+
+  async function saveReviewEdit(review) {
+    const rating = Number(reviewDraft.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      setError("Choose a rating from 1 to 5 stars.");
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setReviewBusy(true);
+    try {
+      const result = await updateReview(review.review_id, {
+        rating,
+        comment: reviewDraft.comment.trim(),
+      });
+      setReviews((current) => current.map((item) =>
+        String(item.review_id) === String(review.review_id)
+          ? { ...item, rating, comment: reviewDraft.comment.trim(), review_status: result.review_status ?? item.review_status }
+          : item
+      ));
+      setEditingReviewId(null);
+      setMessage(result.message || "Your review was updated successfully.");
+    } catch (e) {
+      setError(e.message || "Could not update your review.");
+    } finally {
+      setReviewBusy(false);
     }
   }
 
@@ -251,7 +224,16 @@ async function submitReview(booking) {
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-3xl font-bold text-slate-900">My Bookings</h1><p className="mt-2 text-slate-600">Manage your bookings, submit payment requests, and print invoices.</p></div><Link to="/packages" className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white">Browse packages</Link></div>
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>}
     {message && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">{message}</div>}
-    {loading ? <p>Loading bookings...</p> : bookings.length === 0 ? <div className="rounded-xl border p-8 text-center">No bookings yet. <Link to="/packages" className="text-teal-700 underline">Explore tours</Link></div> : <div className="space-y-5">{bookings.map(b => {
+    {!loading && !error && bookings.length > 0 && <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter bookings">
+      {bookingFilters.map((filter) => {
+        const count = bookings.filter((booking) => bookingMatchesFilter(booking, filter.id)).length;
+        const selected = activeFilter === filter.id;
+        return <button key={filter.id} type="button" role="tab" aria-selected={selected} onClick={() => setActiveFilter(filter.id)} className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${selected ? "border-teal-700 bg-teal-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:border-teal-600 hover:text-teal-700"}`}>
+          {filter.label} <span className={`ml-1 rounded-full px-2 py-0.5 text-xs ${selected ? "bg-white/20" : "bg-slate-100"}`}>{count}</span>
+        </button>;
+      })}
+    </div>}
+    {loading ? <p>Loading bookings...</p> : bookings.length === 0 ? <div className="rounded-xl border p-8 text-center">No bookings yet. <Link to="/packages" className="text-teal-700 underline">Explore tours</Link></div> : filteredBookings.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center"><h2 className="font-semibold text-slate-800">No {bookingFilters.find((filter) => filter.id === activeFilter)?.label.toLowerCase()} found</h2><p className="mt-1 text-sm text-slate-500">Bookings in this category will appear here.</p><button type="button" onClick={() => setActiveFilter("ALL")} className="mt-4 rounded-lg border px-4 py-2 text-sm font-semibold text-teal-700">View all bookings</button></div> : <div className="space-y-5">{filteredBookings.map(b => {
       const form = forms[b.booking_id] || {};
       const paymentRecords = paymentsByBooking[b.booking_id] || [];
       const paidAmount = paymentRecords.filter(p => p.payment_status === "PAID").reduce((sum, p) => sum + Number(p.amount || 0), 0);
@@ -260,90 +242,53 @@ async function submitReview(booking) {
       const paymentSummary = outstanding <= 0 ? "PAID" : paidAmount > 0 ? "PARTIALLY PAID" : pendingRecords.length ? "PAYMENT PENDING" : "UNPAID";
       const bookingStatus = String(b.status_name || b.status?.status_name || b.status || "Unknown").toUpperCase();
       const canCancel = !["CANCELLED", "CANCELED", "COMPLETED", "FINISHED"].includes(bookingStatus);
+      const canShowReview = ["COMPLETED", "FINISHED"].includes(bookingStatus);
+      const reviewForBooking = reviews.find((review) =>
+        String(review.booking_id) === String(b.booking_id)
+      );
+      const isEditingThisReview = reviewForBooking && String(editingReviewId) === String(reviewForBooking.review_id);
       return <article key={b.booking_id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-bold">{b.package_name || b.package?.package_name || `Package #${b.package_id}`}</h2><p className="mt-1 text-sm text-slate-600">Reference: {b.booking_reference}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-sm">{b.status_name || b.status?.status_name || b.status || "Unknown"}</span></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-lg bg-slate-50 p-3"><p className="text-sm text-slate-500">Travel date</p><p className="font-medium">{dateText(b.travel_date || b.departure_datetime)}</p><p className="mt-1 text-xs font-semibold text-teal-700">{scheduleLabel(b)}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-sm text-slate-500">Travelers</p><p className="font-medium">{b.number_of_travelers ?? "—"}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-sm text-slate-500">Booking total</p><p className="font-bold text-teal-800">{money(b.total_amount)}</p></div></div>
         <div className="mt-3 grid gap-3 sm:grid-cols-3"><div className="rounded-lg border border-slate-200 p-3"><p className="text-sm text-slate-500">Payment status</p><p className="font-semibold">{paymentSummary}</p></div><div className="rounded-lg border border-slate-200 p-3"><p className="text-sm text-slate-500">Verified paid</p><p className="font-semibold text-emerald-700">{money(paidAmount)}</p></div><div className="rounded-lg border border-slate-200 p-3"><p className="text-sm text-slate-500">Outstanding balance</p><p className="font-semibold text-red-700">{money(outstanding)}</p></div></div>
         {paymentRecords.length > 0 && <div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-semibold">Payment requests / history</p><div className="mt-2 space-y-2">{paymentRecords.map(p => <div key={p.payment_id} className="flex flex-wrap justify-between gap-2 text-sm"><span>{p.payment_method || "Payment"} · {p.transaction_reference}</span><span className={p.payment_status === "PAID" ? "font-semibold text-emerald-700" : p.payment_status === "PENDING" ? "font-semibold text-amber-700" : "text-slate-600"}>{p.payment_status} — {money(p.amount)}</span></div>)}</div></div>}
+        {canShowReview && reviewForBooking && <section className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-slate-900">Your review</h3>
+              <p className="mt-1 text-sm text-amber-700">{"★".repeat(Math.max(0, Math.min(5, Number(reviewForBooking.rating) || 0)))}{"☆".repeat(5 - Math.max(0, Math.min(5, Number(reviewForBooking.rating) || 0)))} <span className="text-slate-600">({reviewForBooking.rating}/5)</span></p>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{reviewForBooking.comment || "No written comment."}</p>
+              {reviewForBooking.review_status && <p className="mt-2 text-xs text-slate-500">Review status: {reviewForBooking.review_status}</p>}
+            </div>
+            {!isEditingThisReview && <button type="button" onClick={() => beginReviewEdit(reviewForBooking)} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-amber-100">Edit review</button>}
+          </div>
+          {isEditingThisReview && <div className="mt-4 space-y-3 border-t border-amber-200 pt-4">
+            <label className="block text-sm font-medium text-slate-700">Rating
+              <select value={reviewDraft.rating} onChange={(e) => setReviewDraft((current) => ({ ...current, rating: e.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+                <option value="5">5 — Excellent</option>
+                <option value="4">4 — Very good</option>
+                <option value="3">3 — Good</option>
+                <option value="2">2 — Fair</option>
+                <option value="1">1 — Poor</option>
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-slate-700">Comment
+              <textarea rows={3} maxLength={2000} value={reviewDraft.comment} onChange={(e) => setReviewDraft((current) => ({ ...current, comment: e.target.value }))} placeholder="Share your experience..." className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={reviewBusy} onClick={() => saveReviewEdit(reviewForBooking)} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{reviewBusy ? "Saving..." : "Save changes"}</button>
+              <button type="button" disabled={reviewBusy} onClick={() => setEditingReviewId(null)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Cancel</button>
+            </div>
+          </div>}
+        </section>}
+        {canShowReview && !reviewForBooking && <p className="mt-4 text-sm text-slate-500">No review is linked to this booking yet. If you have already reviewed this package, refresh the page to reload your review.</p>}
         <div className="mt-5 border-t pt-5">
           {outstanding > 0 && !["CANCELLED", "CANCELED", "COMPLETED", "FINISHED"].includes(bookingStatus) ? <>
             <h3 className="font-semibold">Submit a payment request</h3><p className="mt-1 text-sm text-slate-600">First payment must be at least 50% of the invoice total. A request does not count as paid until staff verifies it. Submit your real transfer/receipt reference.</p>
             {pendingRecords.length > 0 && <p className="mt-2 text-sm font-medium text-amber-700">A payment request is awaiting verification. Please wait for staff to verify or reject it before submitting another.</p>}
             <div className="mt-3 grid gap-3 md:grid-cols-4"><select disabled={pendingRecords.length > 0} value={form.payment_method_id || ""} onChange={e => setForm(b.booking_id, { payment_method_id: e.target.value })} className="rounded-lg border px-3 py-2 disabled:bg-slate-100"><option value="">Payment method</option>{methods.map(m => <option key={m.payment_method_id} value={m.payment_method_id}>{m.method_name}</option>)}</select><input disabled={pendingRecords.length > 0} type="number" min="0.01" max={outstanding} step="0.01" value={form.amount || ""} onChange={e => setForm(b.booking_id, { amount: e.target.value })} placeholder={`Amount (max ${money(outstanding)})`} className="rounded-lg border px-3 py-2 disabled:bg-slate-100"/><input disabled={pendingRecords.length > 0} value={form.transaction_reference || ""} onChange={e => setForm(b.booking_id, { transaction_reference: e.target.value })} placeholder="Actual transaction / receipt ID" className="rounded-lg border px-3 py-2 disabled:bg-slate-100"/><button disabled={busyId === b.booking_id || pendingRecords.length > 0} onClick={() => submitPayment(b)} className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{pendingRecords.length > 0 ? "Request pending" : busyId === b.booking_id ? "Submitting..." : "Submit request"}</button></div>
           </> : <p className="text-sm font-semibold text-emerald-700">{outstanding <= 0 ? "Payment complete. No outstanding balance remains." : "Payment requests are unavailable for this booking status."}</p>}
-         
           <div className="mt-4 flex flex-wrap gap-3"><button onClick={() => openInvoice(b)} className="rounded-lg border border-slate-300 px-4 py-2 font-medium hover:bg-slate-50">View / print invoice</button>{canCancel && <button disabled={busyId === b.booking_id} onClick={() => handleCancelBooking(b)} className="rounded-lg border border-red-200 px-4 py-2 font-medium text-red-700 hover:bg-red-50 disabled:opacity-50">{busyId === b.booking_id ? "Processing..." : "Cancel booking"}</button>}</div>
-       
-{["COMPLETED", "FINISHED"].includes(bookingStatus) && (
-  <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
-    <h3 className="font-semibold">Rate your journey</h3>
-
-    {reviewEligibility[b.booking_id]?.already_reviewed ? (
-      <p className="mt-2 text-sm text-emerald-700">
-        You have already submitted a review for this package.
-      </p>
-    ) : reviewEligibility[b.booking_id]?.eligible ? (
-      <div className="mt-3 space-y-3">
-        <p className="text-sm">Select your rating:</p>
-
-        <div className="flex gap-1">
-          {[1, 2, 3, 4, 5].map((star) => (
-            <button
-              key={star}
-              type="button"
-              aria-label={`${star} star rating`}
-              onClick={() =>
-                setReviewForm(b.booking_id, { rating: star })
-              }
-              className={`text-3xl ${
-                star <=
-                Number((reviewForms[b.booking_id] || {}).rating || 5)
-                  ? "text-amber-500"
-                  : "text-slate-300"
-              }`}
-            >
-              ★
-            </button>
-          ))}
-        </div>
-
-        <textarea
-          rows={3}
-          maxLength={2000}
-          value={(reviewForms[b.booking_id] || {}).comment || ""}
-          onChange={(e) =>
-            setReviewForm(b.booking_id, { comment: e.target.value })
-          }
-          placeholder="Share your experience (optional)"
-          className="w-full rounded-lg border p-3"
-        />
-
-        <button
-          type="button"
-          disabled={reviewBusyId === b.booking_id}
-          onClick={() => submitReview(b)}
-          className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-50"
-        >
-          {reviewBusyId === b.booking_id
-            ? "Submitting..."
-            : "Submit review"}
-        </button>
-      </div>
-    ) : (
-      <p className="mt-2 text-sm text-slate-600">
-        {reviewEligibility[b.booking_id]?.error ||
-          "A completed journey with fully verified payment is required to review."}
-      </p>
-    )}
-
-    {reviewFeedback[b.booking_id] && (
-      <p role="status" className="mt-3 text-sm font-medium text-teal-800">
-        {reviewFeedback[b.booking_id]}
-      </p>
-    )}
-  </div>
-)}
-
         </div>
       </article>;
     })}</div>}
