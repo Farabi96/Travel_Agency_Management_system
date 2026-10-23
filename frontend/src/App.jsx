@@ -13,6 +13,7 @@ import CustomerProfile from "./pages/CustomerProfile";
 import MyBookings from "./pages/MyBookings";
 import Invoices from "./pages/Invoices";
 import PaymentManagement from "./pages/PaymentManagement";
+import BookingTracking from "./pages/BookingTracking";
 
 function App() {
   return (
@@ -32,7 +33,11 @@ function App() {
         <Route path="/customer/bookings" element={<MyBookings />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payments" element={<PaymentManagement />} />
-      </Routes>
+        <Route
+  path="/booking-tracking"
+  element={<BookingTracking />}
+/>
+      </Routes> 
     </BrowserRouter>
   );
 }

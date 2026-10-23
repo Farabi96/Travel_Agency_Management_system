@@ -90,7 +90,7 @@ class Customer(db.Model):
     )
 
     user = db.relationship(
-        "User",
-        backref="customer",
-        uselist=False
-    )
+    "User",
+    backref=db.backref("customer", uselist=False),
+    uselist=False
+)

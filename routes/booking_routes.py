@@ -1,4 +1,5 @@
-﻿import uuid
+﻿from zoneinfo import ZoneInfo
+import uuid
 from decimal import Decimal
 from datetime import date, datetime
 
@@ -184,6 +185,129 @@ def get_bookings():
         }
         for booking in bookings
     ])
+
+
+
+# =========================================================
+# ADMIN / STAFF: BOOKING & TOUR TRACKING
+# =========================================================
+
+@booking_bp.route("/tracking", methods=["GET"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_booking_tracking():
+    now = datetime.now(ZoneInfo("Asia/Dhaka")).replace(tzinfo=None)
+
+    bookings = (
+        Booking.query
+        .order_by(Booking.booking_date.desc(), Booking.booking_id.desc())
+        .all()
+    )
+
+    results = []
+
+    for booking in bookings:
+        customer = booking.customer
+        package = booking.package
+        schedule = booking.schedule
+
+        customer_name = "Unknown customer"
+        customer_phone = None
+
+        if customer:
+            customer_name = " ".join(
+                part for part in [
+                    customer.first_name,
+                    customer.last_name
+                ]
+                if part
+            ).strip() or "Unknown customer"
+
+            customer_phone = customer.phone
+
+        booking_status = (
+            booking.status.status_name.upper()
+            if booking.status else "UNKNOWN"
+        )
+
+        departure = schedule.departure_datetime if schedule else None
+        return_time = schedule.return_datetime if schedule else None
+
+        # Determine journey status separately from booking status.
+        if booking_status in ("CANCELLED", "CANCELED"):
+            journey_status = "Cancelled"
+        elif (
+            booking_status in ("COMPLETED", "FINISHED")
+            or (return_time is not None and return_time <= now)
+        ):
+            journey_status = "Completed"
+        elif departure is None or return_time is None:
+            journey_status = "Schedule unavailable"
+        elif departure > now:
+            journey_status = "Upcoming"
+        elif departure <= now < return_time:
+            journey_status = "Ongoing"
+        else:
+            journey_status = "Schedule unavailable"
+
+        # Count only PAID transactions as received money.
+        paid_amount = sum(
+            (
+                payment.amount or 0
+                for payment in booking.payments
+                if payment.payment_status
+                and payment.payment_status.status_name.upper() == "PAID"
+            ),
+            start=Decimal("0.00")
+        )
+
+        pending_amount = sum(
+            (
+                payment.amount or 0
+                for payment in booking.payments
+                if payment.payment_status
+                and payment.payment_status.status_name.upper() == "PENDING"
+            ),
+            start=Decimal("0.00")
+        )
+
+        total_amount = Decimal(str(booking.total_amount or 0))
+
+        if paid_amount >= total_amount:
+            payment_status = "Paid"
+        elif paid_amount > 0:
+            payment_status = "Partially Paid"
+        elif pending_amount > 0:
+            payment_status = "Payment Pending"
+        else:
+            payment_status = "Unpaid"
+
+        results.append({
+            "booking_id": booking.booking_id,
+            "booking_reference": booking.booking_reference,
+            "customer_name": customer_name,
+            "customer_phone": customer_phone,
+            "package_name": (
+                package.package_name if package else "Package unavailable"
+            ),
+            "booking_status": booking_status,
+            "payment_status": payment_status,
+            "total_amount": float(total_amount),
+            "paid_amount": float(paid_amount),
+            "remaining_amount": float(max(
+                Decimal("0.00"), total_amount - paid_amount
+            )),
+            "number_of_travelers": booking.number_of_travelers,
+            "departure_datetime": (
+                departure.isoformat() if departure else None
+            ),
+            "return_datetime": (
+                return_time.isoformat() if return_time else None
+            ),
+            "journey_status": journey_status,
+        })
+
+    return jsonify(results), 200
 
 
 # =========================================================

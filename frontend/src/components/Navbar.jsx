@@ -1,11 +1,28 @@
- 
-import { Compass, Menu, UserRound, LogOut } from "lucide-react";
+
+import {
+  Compass,
+  Menu,
+  UserRound,
+  LogOut,
+  Bell,
+  CheckCheck,
+} from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  getNotifications,
+  markNotificationRead,
+} from "../services/api";
 
 export default function Navbar() {
   const navigate = useNavigate();
+
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState("");
+  const [markingReadId, setMarkingReadId] = useState(null);
 
   const token = sessionStorage.getItem("access_token");
   let user = null;
@@ -17,15 +34,90 @@ export default function Navbar() {
     sessionStorage.removeItem("access_token");
   }
 
-  // Show authenticated navigation only when both values exist.
   const isLoggedIn = Boolean(token && user);
+  const isCustomer = isLoggedIn && user.role_name === "CUSTOMER";
+
+  const unreadCount = notifications.filter(
+    (notification) => !notification.is_read
+  ).length;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNotifications() {
+      if (!isCustomer || !token) {
+        setNotifications([]);
+        return;
+      }
+
+      setNotificationsLoading(true);
+      setNotificationsError("");
+
+      try {
+        const data = await getNotifications();
+
+        if (!cancelled) {
+          setNotifications(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setNotificationsError(
+            error.message || "Failed to load notifications."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setNotificationsLoading(false);
+        }
+      }
+    }
+
+    loadNotifications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isCustomer, token]);
 
   function handleLogout() {
     sessionStorage.removeItem("access_token");
     sessionStorage.removeItem("user");
+
     setMenuOpen(false);
+    setNotificationsOpen(false);
+    setNotifications([]);
+
     navigate("/");
   }
+    async function handleMarkRead(notification) {
+    if (notification.is_read || markingReadId !== null) {
+      return;
+    }
+
+    const notificationId = notification.notification_id;
+
+    setMarkingReadId(notificationId);
+    setNotificationsError("");
+
+    try {
+      await markNotificationRead(notificationId);
+
+      setNotifications((current) =>
+        current.map((item) =>
+          item.notification_id === notificationId
+            ? { ...item, is_read: true }
+            : item
+        )
+      );
+    } catch (error) {
+      setNotificationsError(
+        error.message || "Could not mark notification as read."
+      );
+    } finally {
+      setMarkingReadId(null);
+    }
+  }
+ 
 
   const roleLabel = {
     HIGHER_ADMIN: "Admin",
@@ -36,9 +128,144 @@ export default function Navbar() {
   const canManageInvoices =
     isLoggedIn &&
     ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
- const canManagePayments =
-  isLoggedIn &&
-  ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
+
+  const canManagePayments =
+    isLoggedIn &&
+    ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
+
+  function renderNotificationPanel() {
+    return (
+      <div className="absolute right-0 top-full z-[60] mt-3 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl sm:w-96">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <div>
+            <h3 className="font-semibold text-slate-900">
+              Notifications
+            </h3>
+            <p className="text-xs text-slate-500">
+              {unreadCount} unread
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setNotificationsOpen(false)}
+            className="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
+          >
+            Close
+          </button>
+        </div>
+
+        {notificationsError && (
+          <p
+            role="alert"
+            className="border-b border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {notificationsError}
+          </p>
+        )}
+
+        {notificationsLoading ? (
+          <p className="px-4 py-6 text-center text-sm text-slate-500">
+            Loading notifications...
+          </p>
+        ) : notifications.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-slate-500">
+            No notifications yet.
+          </p>
+        ) : (
+          <div className="max-h-96 overflow-y-auto">
+            {notifications.map((notification) => (
+              <div
+                key={notification.notification_id}
+                className={`border-b border-slate-100 px-4 py-3 last:border-b-0 ${
+                  notification.is_read ? "bg-white" : "bg-teal-50"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-slate-900">
+                      {notification.title || "Notification"}
+                    </p>
+
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-600">
+                      {notification.content || "No additional details."}
+                    </p>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      {notification.priority && (
+                        <span className="rounded-full bg-slate-100 px-2 py-1">
+                          {notification.priority}
+                        </span>
+                      )}
+
+                      {notification.created_at && (
+                        <span>
+                          {new Date(
+                            notification.created_at
+                          ).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {!notification.is_read && (
+                    <button
+                      type="button"
+                      title="Mark as read"
+                      aria-label={`Mark ${notification.title || "notification"} as read`}
+                      disabled={
+                        markingReadId !== null
+                      }
+                      onClick={() => handleMarkRead(notification)}
+                      className="shrink-0 rounded-lg p-2 text-teal-700 hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <CheckCheck size={18} />
+                    </button>
+                  )}
+                </div>
+
+                {markingReadId === notification.notification_id && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Marking as read...
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderNotificationButton() {
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() =>
+            setNotificationsOpen((previous) => !previous)
+          }
+          aria-label={`Notifications, ${unreadCount} unread`}
+          aria-expanded={notificationsOpen}
+          className="relative flex items-center gap-2 rounded-full border border-slate-200 p-2.5 text-slate-700 transition hover:bg-slate-100"
+        >
+          <Bell size={20} />
+
+          <span className="text-sm md:hidden">
+            Notifications
+          </span>
+
+          {unreadCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
+        </button>
+
+        {notificationsOpen && renderNotificationPanel()}
+      </div>
+    );
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -86,23 +313,25 @@ export default function Navbar() {
         <div className="hidden items-center gap-3 md:flex">
           {isLoggedIn ? (
             <>
-              {user.role_name === "CUSTOMER" && (
-                <Link
-                  to="/customer/profile"
-                  className="text-sm font-medium text-slate-700 hover:text-teal-700"
-                >
-                  My Profile
-                </Link>
-              )}
-{user.role_name === "CUSTOMER" && (
-  <Link
-    to="/customer/bookings"
-    className="text-sm font-medium text-slate-700 hover:text-teal-700"
-  >
-    My Bookings
-  </Link>
-)}
+              {isCustomer && (
+                <>
+                  <Link
+                    to="/customer/profile"
+                    className="text-sm font-medium text-slate-700 hover:text-teal-700"
+                  >
+                    My Profile
+                  </Link>
 
+                  <Link
+                    to="/customer/bookings"
+                    className="text-sm font-medium text-slate-700 hover:text-teal-700"
+                  >
+                    My Bookings
+                  </Link>
+
+                  {renderNotificationButton()}
+                </>
+              )}
 
               {canManageInvoices && (
                 <Link
@@ -114,13 +343,22 @@ export default function Navbar() {
               )}
 
               {canManagePayments && (
-  <Link
-    to="/payments"
-    className="text-sm font-medium text-slate-700 hover:text-teal-700"
-  >
-    Payments
-  </Link>
-)}
+                <Link
+                  to="/payments"
+                  className="text-sm font-medium text-slate-700 hover:text-teal-700"
+                >
+                  Payments
+                </Link>
+              )}
+
+              {canManagePayments && (
+                <Link
+                  to="/booking-tracking"
+                  className="text-sm font-medium text-slate-700 hover:text-teal-700"
+                >
+                  Booking Tracking
+                </Link>
+              )}
 
               <Link
                 to="/dashboard"
@@ -136,6 +374,7 @@ export default function Navbar() {
               </Link>
 
               <button
+                type="button"
                 onClick={handleLogout}
                 className="flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 transition hover:bg-slate-100"
               >
@@ -156,10 +395,14 @@ export default function Navbar() {
 
         {/* Mobile menu button */}
         <button
+          type="button"
           className="rounded-lg p-2 text-slate-700 md:hidden"
           aria-label="Toggle menu"
           aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((previous) => !previous)}
+          onClick={() => {
+            setMenuOpen((previous) => !previous);
+            setNotificationsOpen(false);
+          }}
         >
           <Menu size={25} />
         </button>
@@ -167,7 +410,7 @@ export default function Navbar() {
 
       {/* Mobile navigation */}
       {menuOpen && (
-        <div className="space-y-3 border-t border-slate-200 bg-white px-5 py-4 md:hidden">
+        <div className="space-y-4 border-t border-slate-200 bg-white px-5 py-4 md:hidden">
           <Link
             className="block text-slate-700"
             to="/"
@@ -194,26 +437,28 @@ export default function Navbar() {
 
           {isLoggedIn ? (
             <>
-              {user.role_name === "CUSTOMER" && (
-                <Link
-                  className="block font-medium text-teal-700"
-                  to="/customer/profile"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  My Profile
-                </Link>
-              )}
-              {user.role_name === "CUSTOMER" && (
-  <Link
-    className="block font-medium text-teal-700"
-    to="/customer/bookings"
-    onClick={() => setMenuOpen(false)}
-  >
-    My Bookings
-  </Link>
-)}
+              {isCustomer && (
+                <>
+                  <Link
+                    className="block font-medium text-teal-700"
+                    to="/customer/profile"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    My Profile
+                  </Link>
 
-              
+                  <Link
+                    className="block font-medium text-teal-700"
+                    to="/customer/bookings"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    My Bookings
+                  </Link>
+
+                  {renderNotificationButton()}
+                </>
+              )}
+
               {canManageInvoices && (
                 <Link
                   className="block font-medium text-teal-700"
@@ -225,13 +470,24 @@ export default function Navbar() {
               )}
 
               {canManagePayments && (
-  <Link
-    to="/payments"
-    className="text-sm font-medium text-slate-700 hover:text-teal-700"
-  >
-    Payments
-  </Link>
-)}
+                <Link
+                  className="block font-medium text-teal-700"
+                  to="/payments"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Payments
+                </Link>
+              )}
+
+              {canManagePayments && (
+                <Link
+                  className="block font-medium text-teal-700"
+                  to="/booking-tracking"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Booking Tracking
+                </Link>
+              )}
 
               <Link
                 className="block text-slate-700"
@@ -243,6 +499,7 @@ export default function Navbar() {
               </Link>
 
               <button
+                type="button"
                 onClick={handleLogout}
                 className="font-semibold text-red-600"
               >

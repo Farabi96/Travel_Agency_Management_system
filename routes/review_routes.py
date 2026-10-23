@@ -1,8 +1,8 @@
-﻿from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 
 from extensions import db
-from models import Review, Customer, TourPackage, Booking
+from models import Review, Customer, TourPackage, Booking, Payment, PaymentStatus, BookingStatus
 from auth_utils import get_current_user, role_required
 
 
@@ -11,6 +11,98 @@ review_bp = Blueprint(
     __name__,
     url_prefix="/api/reviews"
 )
+
+
+# ---------------------------------------------------------
+# PUBLIC APPROVED REVIEWS FOR A PACKAGE
+# ---------------------------------------------------------
+@review_bp.route("/package/<int:package_id>", methods=["GET"])
+def get_package_reviews(package_id):
+    package = TourPackage.query.get_or_404(package_id)
+    reviews = (
+    Review.query.filter(
+        Review.package_id == package.package_id,
+        Review.review_status.notin_(["REJECTED", "HIDDEN"]),
+    )
+    .order_by(Review.created_at.desc())
+    .all()
+)
+    ratings = [int(review.rating) for review in reviews]
+    return jsonify({
+        "package_id": package.package_id,
+        "average_rating": round(sum(ratings) / len(ratings), 2) if ratings else None,
+        "review_count": len(ratings),
+        "reviews": [
+            {
+                "review_id": review.review_id,
+                "rating": review.rating,
+                "comment": review.comment,
+                "created_at": review.created_at.isoformat() if review.created_at else None,
+                "customer_name": (
+                    f"{review.customer.first_name} {review.customer.last_name or ''}".strip()
+                    if review.customer else "Verified customer"
+                ),
+            }
+            for review in reviews
+        ],
+    }), 200
+
+
+# ---------------------------------------------------------
+# CUSTOMER REVIEW ELIGIBILITY
+# Only completed journeys with fully verified payment qualify.
+# One review per customer per package.
+# ---------------------------------------------------------
+@review_bp.route("/eligibility/<int:package_id>", methods=["GET"])
+@jwt_required()
+def get_review_eligibility(package_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    if user.role.role_name != "CUSTOMER" or not user.customer:
+        return jsonify({"eligible": False, "bookings": []}), 200
+
+    package = TourPackage.query.get_or_404(package_id)
+    paid_status = PaymentStatus.query.filter_by(status_name="PAID").first()
+    if not paid_status:
+        return jsonify({"error": "PAID payment status is not configured"}), 500
+
+    completed_bookings = Booking.query.filter_by(
+        customer_id=user.customer.customer_id,
+        package_id=package.package_id,
+    ).filter(
+        Booking.status.has(BookingStatus.status_name == "COMPLETED")
+    ).all()
+
+    eligible_bookings = []
+    for booking in completed_bookings:
+        paid_total = db.session.query(
+            db.func.coalesce(db.func.sum(Payment.amount), 0)
+        ).filter(
+            Payment.booking_id == booking.booking_id,
+            Payment.payment_status_id == paid_status.payment_status_id,
+        ).scalar()
+        if float(paid_total or 0) < float(booking.total_amount):
+            continue
+
+        eligible_bookings.append({
+            "booking_id": booking.booking_id,
+            "booking_reference": booking.booking_reference,
+            "travel_date": booking.travel_date.isoformat() if booking.travel_date else None,
+        })
+
+    existing_review = Review.query.filter_by(
+        customer_id=user.customer.customer_id,
+        package_id=package.package_id,
+    ).first()
+    if existing_review:
+        eligible_bookings = []
+
+    return jsonify({
+        "eligible": bool(eligible_bookings) and existing_review is None,
+        "already_reviewed": existing_review is not None,
+        "bookings": eligible_bookings,
+    }), 200
 
 
 # ---------------------------------------------------------
@@ -187,14 +279,35 @@ def create_review():
             "error": "Booking does not belong to the selected package"
         }), 400
 
+    # Reviews are allowed only after the journey is completed and fully paid.
+    if not booking.status or str(booking.status.status_name).upper() != "COMPLETED":
+        return jsonify({
+            "error": "You can review this package only after completing the journey"
+        }), 403
+
+    paid_status = PaymentStatus.query.filter_by(status_name="PAID").first()
+    if not paid_status:
+        return jsonify({"error": "PAID payment status is not configured"}), 500
+
+    paid_total = db.session.query(
+        db.func.coalesce(db.func.sum(Payment.amount), 0)
+    ).filter(
+        Payment.booking_id == booking.booking_id,
+        Payment.payment_status_id == paid_status.payment_status_id,
+    ).scalar()
+    if float(paid_total or 0) < float(booking.total_amount):
+        return jsonify({
+            "error": "A fully paid booking is required to submit a review"
+        }), 403
+
     existing_review = Review.query.filter_by(
         customer_id=user.customer.customer_id,
-        booking_id=booking_id
+        package_id=package_id
     ).first()
 
     if existing_review:
         return jsonify({
-            "error": "You have already reviewed this booking"
+            "error": "You have already reviewed this package"
         }), 409
 
     review = Review(
@@ -203,7 +316,7 @@ def create_review():
         booking_id=booking_id,
         rating=rating,
         comment=comment,
-        review_status="PENDING"
+        review_status="APPROVED"
     )
 
     db.session.add(review)
@@ -272,7 +385,7 @@ def update_review(review_id):
         review.comment = data["comment"]
 
     if user.role.role_name == "CUSTOMER":
-        review.review_status = "PENDING"
+        review.review_status = "APPROVED"
 
     db.session.commit()
 

@@ -1,6 +1,7 @@
  
  
 import { useEffect, useState } from "react";
+import PackageReviews from "../components/PackageReviews";
 import {
   CalendarDays,
   MapPin,
@@ -963,6 +964,8 @@ export default function Packages() {
                       {item.description ||
                         "Discover a memorable travel experience."}
                     </p>
+
+                    <PackageReviews packageId={packageId} />
 
                     
                     {canManage && canEditPackage(item) && (

@@ -39,9 +39,7 @@ CORS(
 )
 
 db.init_app(app)
-
 jwt = JWTManager(app)
-
 
 # Register all application blueprints
 app.register_blueprint(admin_bp)
@@ -73,9 +71,7 @@ def db_test():
         database_name = db.session.execute(
             text("SELECT current_database()")
         ).scalar()
-
         return f"Database connected successfully: {database_name}"
-
     except Exception as e:
         return f"Database connection failed: {e}", 500
 
@@ -83,14 +79,36 @@ def db_test():
 @app.route("/roles")
 def roles():
     roles = Role.query.all()
-
     return "<br>".join(
         f"{role.role_id} - {role.role_name}"
         for role in roles
-    )
+    ) 
+
+# Start the scheduled task only in the serving process, not Flask's debug reloader
+def run_completion_job(flask_app):
+    """Run scheduled booking completion inside Flask's application context."""
+    from tasks.booking_completion import complete_returned_journeys
+
+    with flask_app.app_context():
+        complete_returned_journeys()
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    from apscheduler.schedulers.background import BackgroundScheduler
 
- 
+    scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
+    scheduler.add_job(
+        func=lambda: run_completion_job(app),
+        trigger="interval",
+        minutes=1,
+        id="complete_returned_journeys",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.start()
+
+    try:
+        app.run(debug=True, use_reloader=False)
+    finally:
+        scheduler.shutdown(wait=False)

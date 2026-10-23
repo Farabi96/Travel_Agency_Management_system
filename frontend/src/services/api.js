@@ -322,13 +322,6 @@ export async function getMyBookings() {
   return authenticatedRequest("/bookings/mine");
 }
 
-export async function cancelBooking(bookingId) {
-  return authenticatedRequest(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {
-    method: "POST",
-    body: JSON.stringify({ terms_accepted: true }),
-  });
-}
-
 /* ==============================
    INVOICES
 ============================== */
@@ -370,6 +363,58 @@ export async function updatePaymentStatus(paymentId, statusName) {
     {
       method: "PUT",
       body: JSON.stringify({ status_name: statusName }),
+    }
+  );
+}
+
+
+/* ==============================
+   PACKAGE REVIEWS
+============================== */
+
+export async function getPackageReviews(packageId) {
+  const response = await fetch(`${API_BASE_URL}/reviews/package/${encodeURIComponent(packageId)}`);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "Failed to load package reviews");
+  return data;
+}
+
+export async function getReviewEligibility(packageId) {
+  return authenticatedRequest(`/reviews/eligibility/${encodeURIComponent(packageId)}`);
+}
+
+export async function createReview(reviewData) {
+  return authenticatedRequest("/reviews/", {
+    method: "POST",
+    body: JSON.stringify(reviewData),
+  });
+}
+export async function cancelBooking(bookingId) {
+  return authenticatedRequest(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+    method: "PUT",
+  });
+}
+
+
+
+export async function getBookingTracking() {
+  return authenticatedRequest("/bookings/tracking");
+}
+
+
+/* ==============================
+   CUSTOMER NOTIFICATIONS
+============================== */
+
+export async function getNotifications() {
+  return authenticatedRequest("/notifications/");
+}
+
+export async function markNotificationRead(notificationId) {
+  return authenticatedRequest(
+    `/notifications/${encodeURIComponent(notificationId)}/read`,
+    {
+      method: "PUT",
     }
   );
 }
