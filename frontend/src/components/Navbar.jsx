@@ -25,6 +25,8 @@ export default function Navbar() {
   const [markingReadId, setMarkingReadId] = useState(null);
 
   const token = sessionStorage.getItem("access_token");
+
+  
   let user = null;
 
   try {
@@ -132,6 +134,9 @@ export default function Navbar() {
   const canManagePayments =
     isLoggedIn &&
     ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
+    const canManageRefunds =
+  isLoggedIn &&
+  ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
 
 
   async function handleNotificationToggle() {
@@ -281,6 +286,7 @@ export default function Navbar() {
       </div>
     );
   }
+  
 
   function renderNotificationButton() {
     return (
@@ -393,6 +399,15 @@ export default function Navbar() {
                   Payments
                 </Link>
               )}
+
+              {canManageRefunds && (
+  <Link
+    to="/refunds"
+    className="text-sm font-medium text-slate-700 hover:text-teal-700"
+  >
+    Refund Management
+  </Link>
+)}
 
               {canManagePayments && (
                 <Link
@@ -521,6 +536,15 @@ export default function Navbar() {
                   Payments
                 </Link>
               )}
+
+              {canManageRefunds && (
+  <Link
+    to="/refunds"
+    className="text-sm font-medium text-slate-700 hover:text-teal-700"
+  >
+    Refund Management
+  </Link>
+)}
 
               {canManagePayments && (
                 <Link

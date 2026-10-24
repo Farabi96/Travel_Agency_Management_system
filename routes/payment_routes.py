@@ -2,13 +2,14 @@
 from uuid import uuid4
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 from sqlalchemy import text
 
 from extensions import db
 from models import (
-    Payment, PaymentMethod, PaymentStatus, Booking, Invoice, InvoiceItem, Customer
+    Payment, PaymentMethod, PaymentStatus, Booking, Invoice, InvoiceItem, Customer,
+    BookingStatus, BookingStatusHistory,
 )
 from auth_utils import get_current_user, role_required, is_staff_or_admin
 
@@ -234,11 +235,16 @@ def create_payment():
     data = request.get_json(silent=True) or {}
     booking_id = data.get("booking_id")
     method_id = data.get("payment_method_id")
-    reference = (data.get("transaction_reference") or "").strip() if isinstance(data.get("transaction_reference") or "", str) else ""
+    reference = data.get("transaction_reference")
     raw_amount = data.get("amount")
 
     if not booking_id or not method_id or raw_amount is None:
         return jsonify({"error": "booking_id, payment_method_id, and amount are required"}), 400
+    if not isinstance(reference, str) or not reference.strip():
+        return jsonify({"error": "Enter the actual transaction/reference ID from your payment provider or receipt"}), 400
+    reference = reference.strip()
+    if len(reference) > 100:
+        return jsonify({"error": "Transaction reference must be 100 characters or fewer"}), 400
     try:
         amount = Decimal(str(raw_amount)).quantize(CENT)
         if not amount.is_finite() or amount <= ZERO:
@@ -257,12 +263,6 @@ def create_payment():
         return jsonify({"error": "Invalid or inactive payment method"}), 400
     if method.is_online:
         return jsonify({"error": "Online payments are not available yet"}), 400
-    if method.method_name.upper() != "CASH" and not reference:
-        return jsonify({"error": "Enter the actual bank transaction/reference ID"}), 400
-    if not reference and method.method_name.upper() == "CASH":
-        reference = f"CASH-REQ-{uuid4().hex.upper()}"
-    if len(reference) > 100:
-        return jsonify({"error": "Transaction reference must be 100 characters or fewer"}), 400
     if Payment.query.filter_by(transaction_reference=reference).first():
         return jsonify({"error": "This transaction/reference ID has already been submitted"}), 409
 
@@ -288,11 +288,15 @@ def create_payment():
         balance = max(ZERO, total - paid)
         if balance <= ZERO:
             return jsonify({"error": "No outstanding balance remains"}), 400
-        minimum_first_payment = (total * Decimal("0.50")).quantize(CENT)
-        if paid <= ZERO and amount < minimum_first_payment:
-            return jsonify({"error": f"The first payment must be at least 50% of the total ({minimum_first_payment:.2f})"}), 400
-        if amount > balance:
-            return jsonify({"error": f"Amount exceeds the outstanding balance ({balance:.2f})"}), 400
+        # Require full payment of the entire outstanding balance.
+        if amount != balance:
+            return jsonify({
+                "error": (
+                    "Full payment is required. "
+                    f"Please pay the entire outstanding balance of {balance:.2f}."
+                ),
+                "required_amount": float(balance),
+            }), 400
 
         # Create invoice only after validation, then attach the request to it.
         invoice = get_or_create_invoice(booking, user.user_id)
@@ -310,8 +314,7 @@ def create_payment():
         return jsonify({"message": "Payment request submitted and awaiting verification", "payment": payment_to_dict(payment), "invoice_id": invoice.invoice_id}), 201
     except Exception:
         db.session.rollback()
-        current_app.logger.exception("Customer payment request creation failed")
-        return jsonify({"error": "Unable to create payment request. Check the Flask server console for the detailed error."}), 500
+        return jsonify({"error": "Unable to create payment request. Check the server log for details."}), 500
 
 
 @payment_bp.route("/record", methods=["POST"])
@@ -373,6 +376,7 @@ def record_offline_payment():
         db.session.add(payment)
         db.session.flush()
         update_invoice_status(booking.booking_id, invoice)
+        confirm_booking_if_fully_paid(booking, user.user_id)
         db.session.commit()
         return jsonify({"message": "Offline payment recorded", "payment": payment_to_dict(payment)}), 201
     except Exception:
@@ -391,6 +395,44 @@ def update_invoice_status(booking_id, invoice):
         invoice.invoice_status = "PARTIALLY_PAID"
     else:
         invoice.invoice_status = "ISSUED"
+
+
+def confirm_booking_if_fully_paid(booking, user_id):
+    """Auto-confirm a booking only when verified payments cover its full total."""
+    invoice = Invoice.query.filter_by(booking_id=booking.booking_id).first()
+    total = applicable_total(booking, invoice)
+    paid = paid_amount_for_booking(booking.booking_id)
+    if paid < total:
+        return False
+
+    current_status = db.session.get(BookingStatus, booking.status_id)
+    current_name = (current_status.status_name if current_status else "").upper()
+    # Never reactivate cancelled or completed bookings through payment verification.
+    if current_name in {"CANCELLED", "CANCELED", "COMPLETED", "FINISHED"}:
+        return False
+
+    confirmed_status = BookingStatus.query.filter(
+        db.func.upper(BookingStatus.status_name) == "CONFIRMED"
+    ).first()
+    if not confirmed_status:
+        raise ValueError("CONFIRMED booking status is not configured in booking_statuses")
+
+    if booking.status_id != confirmed_status.status_id:
+        old_status_id = booking.status_id
+        booking.status_id = confirmed_status.status_id
+        if hasattr(booking, "confirmed_by"):
+            booking.confirmed_by = user_id
+        if hasattr(booking, "confirmed_at"):
+            booking.confirmed_at = datetime.now()
+        db.session.add(BookingStatusHistory(
+            booking_id=booking.booking_id,
+            old_status_id=old_status_id,
+            new_status_id=confirmed_status.status_id,
+            changed_by=user_id,
+            change_reason="Automatically confirmed after full payment verification",
+        ))
+        return True
+    return False
 
 
 @payment_bp.route("/<int:payment_id>/status", methods=["PUT"])
@@ -414,6 +456,8 @@ def update_payment_status(payment_id):
             payment.received_by = user.user_id
         invoice = Invoice.query.filter_by(booking_id=payment.booking_id).first()
         update_invoice_status(payment.booking_id, invoice)
+        if status_name == "PAID":
+            confirm_booking_if_fully_paid(payment.booking, user.user_id)
         db.session.commit()
         return jsonify({"message": "Payment status updated successfully", "payment": payment_to_dict(payment)}), 200
     except Exception:

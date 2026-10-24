@@ -3,13 +3,25 @@ from datetime import date
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from werkzeug.security import generate_password_hash
 
 from auth_utils import role_required, permission_required
 from extensions import db
 from models.user import User
-from models import Booking, Role, Staff
+from models.refund import Refund
+from models import (
+    Booking,
+    BookingStatus,
+    Customer,
+    Destination,
+    Payment,
+    PaymentStatus,
+    Role,
+    Staff,
+    TourPackage,
+)
+
 
 
 admin_bp = Blueprint(
@@ -65,22 +77,152 @@ def permission_test():
 # ---------------------------------------------------------
 # DASHBOARD STATISTICS
 # ---------------------------------------------------------
-
+ 
 @admin_bp.route("/stats", methods=["GET"])
 @jwt_required()
 @role_required("HIGHER_ADMIN")
 def admin_stats():
+    # Basic totals
     total_users = db.session.query(
         func.count(User.user_id)
-    ).scalar()
+    ).scalar() or 0
+
+    total_customers = db.session.query(
+        func.count(Customer.customer_id)
+    ).scalar() or 0
 
     total_bookings = db.session.query(
         func.count(Booking.booking_id)
-    ).scalar()
+    ).scalar() or 0
 
+    total_destinations = db.session.query(
+        func.count(Destination.destination_id)
+    ).scalar() or 0
+
+    total_packages = db.session.query(
+        func.count(TourPackage.package_id)
+    ).scalar() or 0
+
+    # Booking totals grouped by their lookup-table status
+    booking_status_rows = (
+        db.session.query(
+            BookingStatus.status_name,
+            func.count(Booking.booking_id),
+        )
+        .outerjoin(
+            Booking,
+            Booking.status_id == BookingStatus.status_id,
+        )
+        .group_by(BookingStatus.status_name)
+        .order_by(BookingStatus.status_name)
+        .all()
+    )
+
+    booking_status_breakdown = {
+        status_name: count
+        for status_name, count in booking_status_rows
+    }
+
+    # Count payment records and sum amounts by payment status.
+    # PAID is counted as collected revenue; REFUNDED is reported separately.
+    payment_status_rows = (
+        db.session.query(
+            PaymentStatus.status_name,
+            func.count(Payment.payment_id),
+            func.coalesce(func.sum(Payment.amount), 0),
+        )
+        .outerjoin(
+            Payment,
+            Payment.payment_status_id
+            == PaymentStatus.payment_status_id,
+        )
+        .group_by(PaymentStatus.status_name)
+        .order_by(PaymentStatus.status_name)
+        .all()
+    )
+
+    payment_status_breakdown = {}
+    payment_amounts = {}
+
+    for status_name, count, amount in payment_status_rows:
+        payment_status_breakdown[status_name] = count
+        payment_amounts[status_name] = float(amount or 0)
+
+    # Last six calendar months, including the current month
+    month_start = func.date_trunc("month", Booking.booking_date)
+
+    booking_trend_rows = (
+        db.session.query(
+            month_start.label("month"),
+            func.count(Booking.booking_id),
+        )
+        .filter(
+            Booking.booking_date
+            >= func.date_trunc("month", func.current_timestamp())
+            - text("INTERVAL '5 months'")
+        )
+        .group_by(month_start)
+        .order_by(month_start)
+        .all()
+    )
+
+    monthly_bookings = [
+        {
+            "month": month.strftime("%Y-%m"),
+            "bookings": count,
+        }
+        for month, count in booking_trend_rows
+    ]
+
+    # Sum PAID payments by month of payment.
+    payment_month = func.date_trunc("month", Payment.payment_date)
+
+    paid_status = PaymentStatus.query.filter_by(
+        status_name="PAID"
+    ).first()
+
+    monthly_revenue = []
+
+    if paid_status:
+        revenue_trend_rows = (
+            db.session.query(
+                payment_month.label("month"),
+                func.coalesce(func.sum(Payment.amount), 0),  
+            )
+            .filter(
+                Payment.payment_status_id
+                == paid_status.payment_status_id,
+                Payment.payment_date
+                >= func.date_trunc(
+                    "month", func.current_timestamp()
+                ) - text("INTERVAL '5 months'"),
+            )
+            .group_by(payment_month)
+            .order_by(payment_month)
+            .all()
+        )
+
+        monthly_revenue = [
+            {
+                "month": month.strftime("%Y-%m"),
+                "revenue": float(amount or 0),
+            }
+            for month, amount in revenue_trend_rows
+        ]
+ 
     return jsonify({
         "total_users": total_users,
-        "total_bookings": total_bookings
+        "total_customers": total_customers,
+        "total_bookings": total_bookings,
+        "total_destinations": total_destinations,
+        "total_packages": total_packages,
+        "booking_status_breakdown": booking_status_breakdown,
+        "payment_status_breakdown": payment_status_breakdown,
+        "payment_amounts": payment_amounts,
+        "paid_revenue": payment_amounts.get("PAID", 0),
+        "refunded_amount": payment_amounts.get("REFUNDED", 0),
+        "monthly_bookings": monthly_bookings,
+        "monthly_revenue": monthly_revenue,
     }), 200
 
 
@@ -441,4 +583,148 @@ def update_user_status(user_id):
         ),
         "user_id": target_user.user_id,
         "account_status": target_user.account_status
+    }), 200
+
+
+
+
+# ---------------------------------------------------------
+# REFUND MANAGEMENT
+# ---------------------------------------------------------
+
+@admin_bp.route("/refunds", methods=["GET"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_refunds():
+    refunds = (
+        Refund.query
+        .join(Booking, Refund.booking_id == Booking.booking_id)
+        .order_by(Refund.created_at.desc())
+        .all()
+    )
+
+    result = []
+
+    for refund in refunds:
+        booking = refund.booking
+        customer = booking.customer if booking else None
+
+        result.append({
+            "refund_id": refund.refund_id,
+            "booking_id": refund.booking_id,
+            "booking_reference": (
+                booking.booking_reference if booking else None
+            ),
+            "customer_name": (
+                f"{customer.first_name} {customer.last_name or ''}".strip()
+                if customer else "Unknown"
+            ),
+            "paid_amount": str(refund.paid_amount),
+            "refund_percentage": str(refund.refund_percentage),
+            "refund_amount": str(refund.refund_amount),
+            "days_before_travel": refund.days_before_travel,
+            "policy_reason": refund.policy_reason,
+            "refund_status": refund.refund_status,
+            "transaction_reference": refund.transaction_reference,
+            "notes": refund.notes,
+            "created_at": (
+                refund.created_at.isoformat()
+                if refund.created_at else None
+            ),
+            "processed_at": (
+                refund.processed_at.isoformat()
+                if refund.processed_at else None
+            ),
+        })
+
+    return jsonify(result), 200
+
+
+@admin_bp.route("/refunds/<int:refund_id>", methods=["PATCH"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def update_refund(refund_id):
+    from datetime import datetime
+    from decimal import Decimal
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({
+            "error": "A JSON request body is required"
+        }), 400
+
+    refund = db.session.get(Refund, refund_id)
+
+    if not refund:
+        return jsonify({"error": "Refund not found"}), 404
+
+    new_status = str(
+        data.get("refund_status", "")
+    ).strip().upper()
+
+    if new_status not in {"PROCESSING", "COMPLETED", "FAILED"}:
+        return jsonify({
+            "error": "Status must be PROCESSING, COMPLETED or FAILED"
+        }), 400
+
+    if Decimal(str(refund.refund_amount or 0)) <= 0:
+        return jsonify({
+            "error": "A zero-value refund cannot be processed"
+        }), 400
+
+    if refund.refund_status in {"COMPLETED", "NOT_REQUIRED"}:
+        return jsonify({
+            "error": "This refund can no longer be modified"
+        }), 409
+
+    reference = data.get("transaction_reference")
+    notes = data.get("notes")
+
+    if reference is not None and not isinstance(reference, str):
+        return jsonify({
+            "error": "transaction_reference must be text"
+        }), 400
+
+    if notes is not None and not isinstance(notes, str):
+        return jsonify({"error": "notes must be text"}), 400
+
+    reference = reference.strip() if reference else None
+    notes = notes.strip() if notes else None
+
+    if new_status == "COMPLETED" and not reference:
+        return jsonify({
+            "error": "Enter the refund transaction reference before completing"
+        }), 400
+
+    if new_status == "COMPLETED" and refund.refund_status == "FAILED":
+        return jsonify({
+            "error": "A failed refund must be moved to PROCESSING before completion"
+        }), 409
+
+    try:
+        current_user_id = int(get_jwt_identity())
+
+        refund.refund_status = new_status
+        refund.processed_by = current_user_id
+        refund.processed_at = datetime.now() if new_status == "COMPLETED" else None
+
+        if reference is not None:
+            refund.transaction_reference = reference
+
+        if notes is not None:
+            refund.notes = notes
+
+        db.session.commit()
+
+    except Exception:
+        db.session.rollback()
+        return jsonify({
+            "error": "Could not update the refund"
+        }), 500
+
+    return jsonify({
+        "message": f"Refund marked {new_status.lower()}",
+        "refund_id": refund.refund_id,
+        "refund_status": refund.refund_status
     }), 200

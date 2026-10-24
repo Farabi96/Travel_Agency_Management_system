@@ -12,17 +12,40 @@ import {
   ArrowUpRight,
   Clock,
   ShieldCheck,
+   Receipt,
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from "recharts";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
-    destinations: null,
-    packages: null,
-    users: null,
-    bookings: null,
-    loading: true,
-    error: "",
-  });
+  destinations: null,
+  packages: null,
+  users: null,
+  customers: null,
+  bookings: null,
+  paidRevenue: null,
+  refundedAmount: null,
+  bookingStatusBreakdown: {},
+  paymentStatusBreakdown: {},
+  monthlyBookings: [],
+  monthlyRevenue: [],
+  loading: true,
+  error: "",
+});
 
   const token = sessionStorage.getItem("access_token");
   const savedUser = sessionStorage.getItem("user");
@@ -84,15 +107,21 @@ export default function Dashboard() {
           packageResponse.json(),
           usersResponse.json(),
         ]);
-
-        setStats({
-          destinations: destinations.length,
-          packages: packages.length,
-          users: userStats.total_users,
-          bookings: userStats.total_bookings,
-          loading: false,
-          error: "",
-        });
+ setStats({
+  destinations: destinations.length,
+  packages: packages.length,
+  users: userStats.total_users ?? 0,
+  customers: userStats.total_customers ?? 0,
+  bookings: userStats.total_bookings ?? 0,
+  paidRevenue: userStats.paid_revenue ?? 0,
+  refundedAmount: userStats.refunded_amount ?? 0,
+  bookingStatusBreakdown: userStats.booking_status_breakdown ?? {},
+  paymentStatusBreakdown: userStats.payment_status_breakdown ?? {},
+  monthlyBookings: userStats.monthly_bookings ?? [],
+  monthlyRevenue: userStats.monthly_revenue ?? [],
+  loading: false,
+  error: "",
+});
       } catch (error) {
         if (error.name === "AbortError") return;
 
@@ -119,38 +148,82 @@ export default function Dashboard() {
       { label: "Destinations", icon: MapPin, to: "/destinations" },
       { label: "Tour Packages", icon: Package, to: "/packages" },
      { label: "Users & Staff", icon: Users, to: "/admin/users" },
-      { label: "Bookings", icon: CalendarCheck, to: "/dashboard" },
-      { label: "Payments", icon: CreditCard, to: "/dashboard" },
+     { label: "Bookings", icon: CalendarCheck, to: "/booking-tracking" },
+       { label: "Payments", icon: CreditCard, to: "/payments" },
       { label: "Settings", icon: Settings, to: "/dashboard" },
+      { label: "Refund Management", icon: Receipt, to: "/refunds" },
     ];
 
-    const overviewCards = [
-      {
-        title: "Destinations",
-        value: stats.loading ? "..." : (stats.destinations ?? "—"),
-        note: "Total destinations in the database",
-        icon: MapPin,
-      },
-      {
-        title: "Tour Packages",
-        value: stats.loading ? "..." : (stats.packages ?? "—"),
-        note: "Total tour packages in the database",
-        icon: Package,
-      },
-      {
-        title: "Bookings",
-        value: stats.loading ? "..." : (stats.bookings ?? "—"),
-        note: "Booking statistics not connected yet",
-        icon: CalendarCheck,
-      },
-      {
-        title: "Registered Users",
-        value: stats.loading ? "..." : (stats.users ?? "—"),
-        note: "Total registered users",
-        icon: Users,
-      },
-    ];
+const formatBDT = (amount) =>
+  new Intl.NumberFormat("en-BD", {
+    style: "currency",
+    currency: "BDT",
+    maximumFractionDigits: 0,
+  }).format(Number(amount) || 0);
 
+const bookingStatusData = Object.entries(
+  stats.bookingStatusBreakdown
+).map(([name, value]) => ({
+  name,
+  count: Number(value) || 0,
+}));
+
+const paymentStatusData = Object.entries(
+  stats.paymentStatusBreakdown
+).map(([name, value]) => ({
+  name,
+  count: Number(value) || 0,
+}));
+
+const chartColors = [
+  "#0d9488",
+  "#3b82f6",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#64748b",
+];
+
+     const overviewCards = [
+  {
+    title: "Destinations",
+    value: stats.loading ? "..." : stats.destinations ?? "—",
+    note: "Total destinations",
+    icon: MapPin,
+  },
+  {
+    title: "Tour Packages",
+    value: stats.loading ? "..." : stats.packages ?? "—",
+    note: "Total tour packages",
+    icon: Package,
+  },
+  {
+    title: "Total Bookings",
+    value: stats.loading ? "..." : stats.bookings ?? "—",
+    note: "All recorded bookings",
+    icon: CalendarCheck,
+  },
+  {
+    title: "Registered Users",
+    value: stats.loading ? "..." : stats.users ?? "—",
+    note: "All registered accounts",
+    icon: Users,
+  },
+  {
+    title: "Customers",
+    value: stats.loading ? "..." : stats.customers ?? "—",
+    note: "Registered customers",
+    icon: Users,
+  },
+  {
+    title: "Paid Revenue",
+    value: stats.loading
+      ? "..."
+      : formatBDT(stats.paidRevenue),
+    note: "Payments marked as PAID",
+    icon: CreditCard,
+  },
+];
     return (
       <main className="min-h-screen bg-slate-50">
         <div className="mx-auto flex max-w-[1600px] flex-col md:flex-row">
@@ -235,7 +308,7 @@ export default function Dashboard() {
               </p>
             )}
 
-            <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+           <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {overviewCards.map((card) => {
                 const Icon = card.icon;
 
@@ -264,6 +337,167 @@ export default function Dashboard() {
                 );
               })}
             </div>
+
+            {/* Booking and revenue analytics */}
+<div className="mt-8 grid gap-6 xl:grid-cols-2">
+  <section className="rounded-2xl border border-slate-200 bg-white p-6">
+    <h2 className="text-lg font-bold text-slate-900">
+      Monthly Bookings
+    </h2>
+    <p className="mt-1 text-sm text-slate-500">
+      Booking activity over recent months
+    </p>
+
+    <div className="mt-6 h-72">
+      {stats.monthlyBookings.length > 0 ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={stats.monthlyBookings}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="month" />
+            <YAxis allowDecimals={false} />
+            <Tooltip />
+            <Legend />
+            <Bar
+              dataKey="bookings"
+              name="Bookings"
+              fill="#0d9488"
+              radius={[5, 5, 0, 0]}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          {stats.loading ? "Loading chart..." : "No booking data available"}
+        </div>
+      )}
+    </div>
+  </section>
+
+  <section className="rounded-2xl border border-slate-200 bg-white p-6">
+    <h2 className="text-lg font-bold text-slate-900">
+      Monthly Revenue
+    </h2>
+    <p className="mt-1 text-sm text-slate-500">
+      Revenue from payments marked as PAID
+    </p>
+
+    <div className="mt-6 h-72">
+      {stats.monthlyRevenue.length > 0 ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={stats.monthlyRevenue}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="month" />
+            <YAxis />
+            <Tooltip
+              formatter={(value) => formatBDT(value)}
+            />
+            <Legend />
+             <Line
+  type="monotone"
+  dataKey="revenue"
+  name="Revenue (BDT)"
+  stroke="#2563eb"
+  strokeWidth={3}
+  dot={{ r: 5, fill: "#2563eb", strokeWidth: 2 }}
+  activeDot={{ r: 7 }}
+/>
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          {stats.loading ? "Loading chart..." : "No revenue data available"}
+        </div>
+      )}
+    </div>
+  </section>
+
+  <section className="rounded-2xl border border-slate-200 bg-white p-6">
+    <h2 className="text-lg font-bold text-slate-900">
+      Booking Status
+    </h2>
+    <p className="mt-1 text-sm text-slate-500">
+      Distribution of booking statuses
+    </p>
+
+    <div className="mt-6 h-72">
+      {bookingStatusData.length > 0 ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={bookingStatusData}
+              dataKey="count"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              outerRadius={90}
+              label
+            >
+              {bookingStatusData.map((entry, index) => (
+                <Cell
+                  key={entry.name}
+                  fill={chartColors[index % chartColors.length]}
+                />
+              ))}
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          {stats.loading ? "Loading chart..." : "No booking status data available"}
+        </div>
+      )}
+    </div>
+  </section>
+
+  <section className="rounded-2xl border border-slate-200 bg-white p-6">
+    <h2 className="text-lg font-bold text-slate-900">
+      Payment Overview
+    </h2>
+    <p className="mt-1 text-sm text-slate-500">
+      Payment status distribution and refunds
+    </p>
+
+    <div className="mt-6 h-72">
+      {paymentStatusData.length > 0 ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={paymentStatusData}
+              dataKey="count"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              outerRadius={90}
+              label
+            >
+              {paymentStatusData.map((entry, index) => (
+                <Cell
+                  key={entry.name}
+                  fill={chartColors[index % chartColors.length]}
+                />
+              ))}
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          {stats.loading ? "Loading chart..." : "No payment status data available"}
+        </div>
+      )}
+    </div>
+
+    <div className="mt-4 rounded-xl bg-slate-50 p-4">
+      <p className="text-sm text-slate-500">Total refunded amount</p>
+      <p className="mt-1 text-xl font-bold text-slate-900">
+        {stats.loading ? "..." : formatBDT(stats.refundedAmount)}
+      </p>
+    </div>
+  </section>
+</div>
 
             <div className="mt-8 grid gap-6 xl:grid-cols-3">
               <section className="rounded-2xl border border-slate-200 bg-white p-6 xl:col-span-2">

@@ -408,10 +408,12 @@ export async function createReview(reviewData) {
     method: "POST",
     body: JSON.stringify(reviewData),
   });
-}
+} 
+
 export async function cancelBooking(bookingId) {
   return authenticatedRequest(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {
-    method: "PUT",
+    method: "POST",
+    body: JSON.stringify({ terms_accepted: true }),
   });
 }
 
@@ -452,6 +454,26 @@ export async function updateReview(reviewId, reviewData) {
     {
       method: "PUT",
       body: JSON.stringify(reviewData),
+    }
+  );
+}
+
+
+
+/* ==============================
+   REFUND MANAGEMENT
+============================== */
+
+export async function getRefunds() {
+  return authenticatedRequest("/admin/refunds");
+}
+
+export async function updateRefund(refundId, refundData) {
+  return authenticatedRequest(
+    `/admin/refunds/${encodeURIComponent(refundId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(refundData),
     }
   );
 }

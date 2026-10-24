@@ -1,7 +1,7 @@
 ﻿from zoneinfo import ZoneInfo
 import uuid
 from decimal import Decimal
-from datetime import date, datetime
+from datetime import date, datetime,timedelta
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import jwt_required
@@ -14,6 +14,7 @@ from models import (
     BookingStatusHistory,
     Payment,
     PaymentStatus,
+    Refund,
 )
 from extensions import db
 from auth_utils import (
@@ -80,81 +81,224 @@ def get_my_bookings():
 # =========================================================
 # CUSTOMER: CANCEL OWN BOOKING (NO AUTOMATIC REFUND)
 # =========================================================
-
+ 
 @booking_bp.route("/<int:booking_id>/cancel", methods=["POST"])
 @jwt_required()
 def cancel_my_booking(booking_id):
     user = get_current_user()
     if not user:
         return jsonify({"error": "User not found or account is not active"}), 403
+
     if not user.role or user.role.role_name != "CUSTOMER":
-        return jsonify({"error": "Only customers can cancel bookings from this endpoint"}), 403
+        return jsonify({
+            "error": "Only customers can cancel bookings from this endpoint"
+        }), 403
 
     customer = Customer.query.filter_by(user_id=user.user_id).first()
     if not customer:
         return jsonify({"error": "Customer profile not found"}), 404
 
     booking = Booking.query.filter_by(
-        booking_id=booking_id, customer_id=customer.customer_id
+        booking_id=booking_id,
+        customer_id=customer.customer_id
     ).first()
+
     if not booking:
         return jsonify({"error": "Booking not found"}), 404
 
     data = request.get_json(silent=True) or {}
     if data.get("terms_accepted") is not True:
-        return jsonify({"error": "You must accept the cancellation terms"}), 400
+        return jsonify({
+            "error": "You must accept the cancellation terms"
+        }), 400
 
-    current_name = booking.status.status_name.upper() if booking.status else ""
+    current_name = (
+        booking.status.status_name.upper() if booking.status else ""
+    )
+
     if current_name in {"CANCELLED", "CANCELED"}:
         return jsonify({"error": "This booking is already cancelled"}), 400
+
     if current_name in {"COMPLETED", "FINISHED"}:
-        return jsonify({"error": "A completed booking cannot be cancelled"}), 400
+        return jsonify({
+            "error": "A completed booking cannot be cancelled"
+        }), 400
 
     try:
+        # Use the server date and timestamp for policy calculation.
+        # Use Bangladesh local time for policy calculation.
+        now = datetime.now(ZoneInfo("Asia/Dhaka")).replace(tzinfo=None)
+        today = now.date()
+        travel_date = (
+            booking.travel_date.date()
+            if isinstance(booking.travel_date, datetime)
+            else booking.travel_date
+        )
+        days_before_travel = (travel_date - today).days
+
+        # Only payments verified as PAID count as received money.
+        payments = Payment.query.filter_by(
+            booking_id=booking.booking_id
+        ).all()
+
+        paid_amount = sum(
+            (
+                Decimal(str(payment.amount or 0))
+                for payment in payments
+                if payment.payment_status
+                and payment.payment_status.status_name.upper() == "PAID"
+            ),
+            Decimal("0.00")
+        ).quantize(Decimal("0.01"))
+
+        # Determine the proposed cancellation refund policy.
+        if (
+            booking.booking_date
+            and now >= booking.booking_date
+            and now - booking.booking_date <= timedelta(hours=24)
+            and days_before_travel >= 7
+        ):
+            refund_percentage = Decimal("100.00")
+            policy_reason = (
+                "Cancelled within 24 hours of booking, "
+                "at least 7 days before travel"
+            )
+        elif days_before_travel >= 30:
+            refund_percentage = Decimal("90.00")
+            policy_reason = "Cancelled 30 or more days before travel"
+        elif days_before_travel >= 15:
+            refund_percentage = Decimal("75.00")
+            policy_reason = "Cancelled 15-29 days before travel" 
+        elif days_before_travel >= 7:
+            refund_percentage = Decimal("50.00")
+            policy_reason = "Cancelled 7-14 days before travel"
+        elif days_before_travel >= 3:
+            refund_percentage = Decimal("25.00")
+            policy_reason = "Cancelled 3-6 days before travel"
+        else:
+            refund_percentage = Decimal("0.00")
+            policy_reason = "Cancelled 0-2 days before travel"
+
+        refund_base = min(
+            paid_amount,
+            Decimal(str(booking.total_amount or 0))
+        )
+
+        refund_amount = (
+            refund_base * refund_percentage / Decimal("100")
+        ).quantize(Decimal("0.01"))
+
         cancelled_status = BookingStatus.query.filter(
-            db.func.upper(BookingStatus.status_name).in_(["CANCELLED", "CANCELED"])
+            db.func.upper(BookingStatus.status_name).in_(
+                ["CANCELLED", "CANCELED"]
+            )
         ).first()
+
         if not cancelled_status:
             cancelled_status = BookingStatus(
                 status_name="CANCELLED",
-                description="Booking cancelled by customer; refunds are handled separately"
+                description="Booking cancelled by customer"
             )
             db.session.add(cancelled_status)
             db.session.flush()
 
         old_status_id = booking.status_id
         booking.status_id = cancelled_status.status_id
+
         db.session.add(BookingStatusHistory(
             booking_id=booking.booking_id,
             old_status_id=old_status_id,
             new_status_id=cancelled_status.status_id,
             changed_by=user.user_id,
-            change_reason="Customer cancellation accepted; refund is not automatic"
+            change_reason=(
+                f"Customer cancellation. {policy_reason}. "
+                f"Calculated refund: {refund_amount:.2f} BDT."
+            )
         ))
 
-        pending_status = PaymentStatus.query.filter_by(status_name="PENDING").first()
-        failed_status = PaymentStatus.query.filter_by(status_name="FAILED").first()
+        # Close pending payment requests; they are not received money.
+        pending_status = PaymentStatus.query.filter_by(
+            status_name="PENDING"
+        ).first()
+        failed_status = PaymentStatus.query.filter_by(
+            status_name="FAILED"
+        ).first()
+
         if pending_status and failed_status:
             Payment.query.filter_by(
                 booking_id=booking.booking_id,
-                payment_status_id=pending_status.payment_status_id,
+                payment_status_id=pending_status.payment_status_id
             ).update(
-                {Payment.payment_status_id: failed_status.payment_status_id,
-                 Payment.notes: db.func.coalesce(Payment.notes, "") + "\nClosed because booking was cancelled."},
+                {
+                    Payment.payment_status_id: failed_status.payment_status_id,
+                    Payment.notes: (
+                        db.func.coalesce(Payment.notes, "")
+                        + "\nClosed because booking was cancelled."
+                    ),
+                },
                 synchronize_session=False,
             )
 
+        # Store a refund record only when some money was received.
+        # A zero refund is reported separately, not marked as paid back.
+        if paid_amount > 0:
+            existing_refund = Refund.query.filter_by(
+                booking_id=booking.booking_id
+            ).first()
+
+            if existing_refund:
+                raise ValueError(
+                    "A refund record already exists for this booking."
+                )
+
+            db.session.add(Refund(
+                booking_id=booking.booking_id,
+                paid_amount=paid_amount,
+                refund_percentage=refund_percentage,
+                refund_amount=refund_amount,
+                days_before_travel=days_before_travel,
+                policy_reason=policy_reason,
+                refund_status=(
+                 "PENDING" if refund_amount > 0 else "NOT_REQUIRED"
+          ),
+                notes=(
+                    "Refund amount calculated; staff must process "
+                    "any refund due."
+                    if refund_amount > 0
+                    else "No refund is due under the cancellation policy."
+                )
+            ))
+
         db.session.commit()
+
         return jsonify({
-            "message": "Booking cancelled. Refunds are not issued automatically and may be handled separately later.",
+            "message": (
+                "Booking cancelled. Your refund has been calculated; "
+                "any refund due still requires processing."
+                if refund_amount > 0
+                else "Booking cancelled. No refund amount is due under the policy."
+            ),
             "booking_id": booking.booking_id,
             "status": cancelled_status.status_name,
+            "paid_amount": float(paid_amount),
+            "days_before_travel": days_before_travel,
+            "refund_percentage": float(refund_percentage),
+            "refund_amount": float(refund_amount),
+            "refund_status": (
+                "PENDING" if refund_amount > 0
+                else "NOT_REQUIRED"
+            ),
+            "policy_reason": policy_reason,
         }), 200
+
     except Exception:
         db.session.rollback()
-        current_app.logger.exception("Customer booking cancellation failed")
-        return jsonify({"error": "Could not cancel booking. Check the server log for details."}), 500
-
+        current_app.logger.exception(
+            "Customer booking cancellation failed"
+        )
+        return jsonify({
+            "error": "Could not cancel booking. Check the server log for details."
+        }), 500
 
 # =========================================================
 # GET ALL BOOKINGS

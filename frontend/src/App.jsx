@@ -14,6 +14,7 @@ import MyBookings from "./pages/MyBookings";
 import Invoices from "./pages/Invoices";
 import PaymentManagement from "./pages/PaymentManagement";
 import BookingTracking from "./pages/BookingTracking";
+import RefundManagement from "./pages/RefundManagement";
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
   path="/booking-tracking"
   element={<BookingTracking />}
 />
+<Route path="/refunds" element={<RefundManagement />} />
       </Routes> 
     </BrowserRouter>
   );
