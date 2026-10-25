@@ -44,6 +44,12 @@ class Booking(db.Model):
         server_default=db.func.current_timestamp()
     )
 
+    payment_deadline = db.Column(
+    db.DateTime,
+    nullable=True,
+    index=True
+)
+
     travel_date = db.Column(
         db.Date,
         nullable=False

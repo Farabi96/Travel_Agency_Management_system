@@ -2,7 +2,7 @@
 from uuid import uuid4
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required
 from sqlalchemy import text
 
@@ -12,6 +12,7 @@ from models import (
     BookingStatus, BookingStatusHistory,
 )
 from auth_utils import get_current_user, role_required, is_staff_or_admin
+from zoneinfo import ZoneInfo
 
 payment_bp = Blueprint("payment", __name__, url_prefix="/api/payments")
 CENT = Decimal("0.01")
@@ -106,22 +107,55 @@ def get_or_create_invoice(booking, user_id=None):
 
 
 def payment_summary_for_booking(booking, invoice=None):
-    invoice = invoice or Invoice.query.filter_by(booking_id=booking.booking_id).first()
+    invoice = invoice or Invoice.query.filter_by(
+        booking_id=booking.booking_id
+    ).first()
+
     total = applicable_total(booking, invoice)
     paid = paid_amount_for_booking(booking.booking_id)
-    balance = max(ZERO, total - paid)
+
+    booking_status = (
+        booking.status.status_name.upper()
+        if booking.status and booking.status.status_name
+        else "UNKNOWN"
+    )
+
+    is_cancelled = booking_status in {"CANCELLED", "CANCELED"}
+
+    # Cancelled bookings remain in history, but are not active receivables.
+    balance = ZERO if is_cancelled else max(ZERO, total - paid)
+
     pending_status = find_payment_status("PENDING")
     pending = []
+
     if pending_status:
-        pending = [payment_to_dict(p) for p in Payment.query.filter_by(
-            booking_id=booking.booking_id,
-            payment_status_id=pending_status.payment_status_id,
-        ).order_by(Payment.payment_id.desc()).all()]
+        pending = [
+            payment_to_dict(payment)
+            for payment in Payment.query.filter_by(
+                booking_id=booking.booking_id,
+                payment_status_id=pending_status.payment_status_id,
+            ).order_by(Payment.payment_id.desc()).all()
+        ]
+
+    if is_cancelled:
+        payment_summary = "CANCELLED"
+    elif balance <= ZERO:
+        payment_summary = "PAID"
+    elif paid > ZERO:
+        payment_summary = "PARTIALLY_PAID"
+    elif pending:
+        payment_summary = "PENDING"
+    else:
+        payment_summary = "UNPAID"
+
     return {
-        "total_amount": float(total), "paid_amount": float(paid),
-        "balance": float(balance), "pending_payments": pending,
-        "payment_summary": "PAID" if balance <= ZERO else ("PARTIALLY_PAID" if paid > ZERO else ("PENDING" if pending else "UNPAID")),
+        "total_amount": float(total),
+        "paid_amount": float(paid),
+        "balance": float(balance),
+        "pending_payments": pending,
+        "payment_summary": payment_summary,
     }
+
 
 
 @payment_bp.route("/methods", methods=["GET"])
@@ -238,6 +272,8 @@ def create_payment():
     reference = data.get("transaction_reference")
     raw_amount = data.get("amount")
 
+
+
     if not booking_id or not method_id or raw_amount is None:
         return jsonify({"error": "booking_id, payment_method_id, and amount are required"}), 400
     if not isinstance(reference, str) or not reference.strip():
@@ -258,6 +294,31 @@ def create_payment():
         return jsonify({"error": "Booking not found"}), 404
     if not can_access_booking(user, booking):
         return jsonify({"error": "Access denied"}), 403
+        # Prevent payments for cancelled bookings.
+    booking_status = (
+        booking.status.status_name.upper()
+        if booking.status and booking.status.status_name
+        else ""
+    )
+
+    if booking_status in {"CANCELLED", "CANCELED"}:
+        return jsonify({
+            "error": "Payments cannot be submitted for a cancelled booking."
+        }), 400
+
+
+    # Reject new payment requests after the booking deadline.
+    if (
+        booking.payment_deadline
+        and datetime.now(ZoneInfo("Asia/Dhaka")).replace(tzinfo=None) >= booking.payment_deadline
+    ):
+        return jsonify({
+            "error": (
+                "The 45-minute payment deadline has expired. "
+                "Please create a new booking."
+            )
+        }), 400
+
     method = db.session.get(PaymentMethod, method_id)
     if not method or method.status != "ACTIVE":
         return jsonify({"error": "Invalid or inactive payment method"}), 400
@@ -337,11 +398,28 @@ def record_offline_payment():
     except (InvalidOperation, ValueError, TypeError):
         return jsonify({"error": "Amount must be a valid positive number"}), 400
 
-    booking = db.session.get(Booking, booking_id)
+    booking = (
+    Booking.query
+    .filter_by(booking_id=booking_id)
+    .with_for_update()
+    .first()
+)
     method = db.session.get(PaymentMethod, method_id)
     paid_status = find_payment_status("PAID")
     if not booking:
         return jsonify({"error": "Booking not found"}), 404
+    booking_status = (
+    booking.status.status_name.upper()
+    if booking.status and booking.status.status_name
+    else ""
+)
+
+    if booking_status in {"CANCELLED", "CANCELED"}:
+     return jsonify({
+        "error": "Offline payments cannot be recorded for a cancelled booking."
+    }), 400
+
+
     if not method or method.status != "ACTIVE" or method.is_online:
         return jsonify({"error": "Choose an active offline payment method"}), 400
     if not paid_status:
@@ -439,27 +517,104 @@ def confirm_booking_if_fully_paid(booking, user_id):
 @role_required("HIGHER_ADMIN", "STAFF")
 def update_payment_status(payment_id):
     user = get_current_user()
-    payment = Payment.query.get_or_404(payment_id)
     data = request.get_json(silent=True) or {}
     status_name = data.get("status_name")
+
     if status_name not in {"PAID", "FAILED", "REFUNDED"}:
-        return jsonify({"error": "status_name must be PAID, FAILED, or REFUNDED"}), 400
-    current = payment.payment_status.status_name if payment.payment_status else None
-    if current != "PENDING" and not (current == "PAID" and status_name == "REFUNDED"):
-        return jsonify({"error": f"Cannot change payment from {current} to {status_name}"}), 400
-    new_status = find_payment_status(status_name)
-    if not new_status:
-        return jsonify({"error": f"{status_name} payment status is not configured"}), 500
+        return jsonify({
+            "error": "status_name must be PAID, FAILED, or REFUNDED"
+        }), 400
+
     try:
+        # Find the payment to identify its booking.
+        initial_payment = db.session.get(Payment, payment_id)
+        if not initial_payment:
+            return jsonify({"error": "Payment not found"}), 404
+
+        booking_id = initial_payment.booking_id
+
+        # Always lock the booking first, matching the expiry/payment-creation flow.
+        booking = (
+            Booking.query
+            .filter_by(booking_id=booking_id)
+            .with_for_update()
+            .first()
+        )
+        if not booking:
+            db.session.rollback()
+            return jsonify({"error": "Booking not found"}), 404
+
+        # Lock and re-read the payment after locking its booking.
+        payment = (
+            Payment.query
+            .filter_by(payment_id=payment_id)
+            .with_for_update()
+            .first()
+        )
+        if not payment or payment.booking_id != booking.booking_id:
+            db.session.rollback()
+            return jsonify({"error": "Payment not found"}), 404
+
+        current = (
+            payment.payment_status.status_name
+            if payment.payment_status
+            else None
+        )
+
+        if current != "PENDING" and not (
+            current == "PAID" and status_name == "REFUNDED"
+        ):
+            db.session.rollback()
+            return jsonify({
+                "error": f"Cannot change payment from {current} to {status_name}"
+            }), 400
+
+        new_status = find_payment_status(status_name)
+        if not new_status:
+            db.session.rollback()
+            return jsonify({
+                "error": f"{status_name} payment status is not configured"
+            }), 500
+
+        # Do not accept payment for a booking already cancelled or completed.
+        booking_status = (
+            booking.status.status_name.upper()
+            if booking.status and booking.status.status_name
+            else ""
+        )
+        if status_name == "PAID" and booking_status in {
+            "CANCELLED", "CANCELED", "COMPLETED"
+        }:
+            db.session.rollback()
+            return jsonify({
+                "error": (
+                    "Payment cannot be verified for a cancelled or "
+                    "completed booking."
+                )
+            }), 409
+
         payment.payment_status_id = new_status.payment_status_id
+
         if status_name == "PAID":
             payment.received_by = user.user_id
-        invoice = Invoice.query.filter_by(booking_id=payment.booking_id).first()
-        update_invoice_status(payment.booking_id, invoice)
+
+        invoice = Invoice.query.filter_by(booking_id=booking.booking_id).first()
+        update_invoice_status(booking.booking_id, invoice)
+
         if status_name == "PAID":
-            confirm_booking_if_fully_paid(payment.booking, user.user_id)
+            confirm_booking_if_fully_paid(booking, user.user_id)
+
         db.session.commit()
-        return jsonify({"message": "Payment status updated successfully", "payment": payment_to_dict(payment)}), 200
+
+        return jsonify({
+            "message": "Payment status updated successfully",
+            "payment": payment_to_dict(payment),
+        }), 200
+
     except Exception:
         db.session.rollback()
+        current_app.logger.exception(
+            "Unable to update payment status for payment_id=%s",
+            payment_id,
+        )
         return jsonify({"error": "Unable to update payment status"}), 500

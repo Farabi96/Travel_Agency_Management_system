@@ -67,30 +67,63 @@ function MyBookings() {
     return "Schedule not available";
   }
 
-  const load = useCallback(async () => {
-    setLoading(true); setError("");
-    try {
-      const [bookingData, methodData, reviewData] = await Promise.all([
-        getMyBookings(),
-        getPaymentMethods(),
-        getMyReviews().catch(() => []),
-      ]);
-      const ownBookings = Array.isArray(bookingData) ? bookingData : [];
-      setBookings(ownBookings);
-      setReviews(Array.isArray(reviewData) ? reviewData : []);
-      setMethods(Array.isArray(methodData) ? methodData.filter(m => m.available_for_request) : []);
-      const paymentEntries = await Promise.all(ownBookings.map(async (booking) => {
+
+const load = useCallback(async () => {
+  setLoading(true);
+  setError("");
+
+  try {
+    // Bookings are essential: load them independently.
+    const bookingData = await getMyBookings();
+    const ownBookings = Array.isArray(bookingData)
+      ? bookingData
+      : [];
+
+    setBookings(ownBookings);
+
+    // Optional data should not prevent the bookings from appearing.
+    const [methodResult, reviewResult] = await Promise.allSettled([
+      getPaymentMethods(),
+      getMyReviews(),
+    ]);
+
+    setMethods(
+      methodResult.status === "fulfilled" &&
+        Array.isArray(methodResult.value)
+        ? methodResult.value.filter((method) => method.available_for_request)
+        : []
+    );
+
+    setReviews(
+      reviewResult.status === "fulfilled" &&
+        Array.isArray(reviewResult.value)
+        ? reviewResult.value
+        : []
+    );
+
+    // Load payment history for each booking independently.
+    const paymentEntries = await Promise.all(
+      ownBookings.map(async (booking) => {
         try {
           const records = await getBookingPayments(booking.booking_id);
-          return [booking.booking_id, Array.isArray(records) ? records : []];
+          return [
+            booking.booking_id,
+            Array.isArray(records) ? records : [],
+          ];
         } catch {
           return [booking.booking_id, []];
         }
-      }));
-      setPaymentsByBooking(Object.fromEntries(paymentEntries));
-    } catch (e) { setError(e.message || "Could not load bookings."); }
-    finally { setLoading(false); }
-  }, []);
+      })
+    );
+
+    setPaymentsByBooking(Object.fromEntries(paymentEntries));
+  } catch (e) {
+    setError(e.message || "Could not load bookings.");
+  } finally {
+    setLoading(false);
+  }
+}, []);
+
   useEffect(() => { load(); }, [load]);
 
   const getBookingStatus = (booking) => String(
@@ -109,6 +142,41 @@ function MyBookings() {
   };
 
   const filteredBookings = bookings.filter((booking) => bookingMatchesFilter(booking, activeFilter));
+
+const bookingSummary = bookings.reduce(
+  (summary, booking) => {
+    const status = getBookingStatus(booking);
+    const travelDate = new Date(
+      booking.departure_datetime || booking.travel_date
+    ).getTime();
+
+    const isUpcoming =
+      Number.isFinite(travelDate) &&
+      travelDate >= Date.now() &&
+      !["CANCELLED", "CANCELED", "COMPLETED", "FINISHED", "REJECTED"].includes(status);
+
+    const payments = paymentsByBooking[booking.booking_id] || [];
+
+    const paid = payments
+      .filter((payment) => payment.payment_status === "PAID")
+      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+
+    const total = Number(booking.total_amount || 0);
+
+    summary.total += 1;
+    summary.upcoming += isUpcoming ? 1 : 0;
+    summary.paid += paid;
+    const isCancelled = ["CANCELLED", "CANCELED"].includes(status);
+
+summary.outstanding += isCancelled
+  ? 0
+  : Math.max(0, total - paid);
+
+    return summary;
+  },
+  { total: 0, upcoming: 0, paid: 0, outstanding: 0 }
+);
+
   const bookingFilters = [
     { id: "ALL", label: "All bookings" },
     { id: "SCHEDULED", label: "Scheduled / active" },
@@ -124,6 +192,42 @@ function MyBookings() {
     if (!form.payment_method_id || !form.amount || !form.transaction_reference?.trim()) {
       setError("Choose a payment method and enter the amount and actual transaction/reference ID."); return;
     }
+
+const amount = Number(form.amount);
+const paymentRecords = paymentsByBooking[booking.booking_id] || [];
+
+const paidAmount = paymentRecords
+  .filter((payment) => payment.payment_status === "PAID")
+  .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+
+const pendingRequest = paymentRecords.some(
+  (payment) => payment.payment_status === "PENDING"
+);
+
+const totalAmount = Number(booking.total_amount || 0);
+const outstanding = Math.max(0, totalAmount - paidAmount);
+
+if (!Number.isFinite(amount) || amount <= 0) {
+  setError("Enter a valid payment amount.");
+  return;
+}
+
+if (amount > outstanding + 0.001) {
+  setError("Payment amount cannot exceed the outstanding balance.");
+  return;
+}
+
+if (pendingRequest) {
+  setError("Please wait until your pending payment request is reviewed.");
+  return;
+}
+ if (amount < outstanding - 0.001) {
+  setError(
+    `Full payment is required. Please pay the remaining balance of ${money(outstanding)}.`
+  );
+  return;
+}
+
     setBusyId(booking.booking_id);
     try {
       const result = await createPaymentRequest({
@@ -205,7 +309,20 @@ function MyBookings() {
       ]);
       const paid = payments.filter(p => p.payment_status === "PAID").reduce((s, p) => s + Number(p.amount || 0), 0);
       const pending = payments.filter(p => p.payment_status === "PENDING");
-      setInvoiceView({ booking, invoice, payments, paid, pending, balance: Math.max(0, Number(invoice.total_amount || 0) - paid) });
+      const isCancelled = ["CANCELLED", "CANCELED"].includes(
+  String(
+    booking.status_name ||
+    booking.status?.status_name ||
+    booking.status ||
+    ""
+  ).toUpperCase()
+);
+
+const balance = isCancelled
+  ? 0
+  : Math.max(0, Number(invoice.total_amount || 0) - paid);
+
+setInvoiceView({ booking, invoice, payments, paid, pending, balance });
     } catch (e) { setError(e.message || "Invoice is not available yet. Submit a payment request to generate it."); }
   }
 
@@ -221,7 +338,53 @@ function MyBookings() {
   }
 
   return <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-3xl font-bold text-slate-900">My Bookings</h1><p className="mt-2 text-slate-600">Manage your bookings, submit payment requests, and print invoices.</p></div><Link to="/packages" className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white">Browse packages</Link></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div>
+
+<section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  {[
+    {
+      label: "Total Bookings",
+      value: bookingSummary.total,
+      detail: "All reservations",
+      color: "text-slate-900",
+    },
+    {
+      label: "Upcoming Trips",
+      value: bookingSummary.upcoming,
+      detail: "Future journeys",
+      color: "text-blue-700",
+    },
+    {
+      label: "Verified Payments",
+      value: money(bookingSummary.paid),
+      detail: "Payments confirmed by staff",
+      color: "text-emerald-700",
+    },
+    {
+      label: "Outstanding Balance",
+      value: money(bookingSummary.outstanding),
+      detail: "Based on recorded payments",
+      color: "text-rose-700",
+    },
+  ].map((item) => (
+    <article
+      key={item.label}
+      className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+    >
+      <p className="text-sm font-medium text-slate-500">
+        {item.label}
+      </p>
+      <p className={`mt-3 break-words text-2xl font-bold ${item.color}`}>
+        {item.value}
+      </p>
+      <p className="mt-2 text-xs text-slate-500">
+        {item.detail}
+      </p>
+    </article>
+  ))}
+</section>
+
+      <h1 className="text-3xl font-bold text-slate-900">My Bookings</h1><p className="mt-2 text-slate-600">Manage your bookings, submit payment requests, and print invoices.</p></div><Link to="/packages" className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white">Browse packages</Link></div>
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>}
     {message && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">{message}</div>}
     {!loading && !error && bookings.length > 0 && <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter bookings">
@@ -238,10 +401,26 @@ function MyBookings() {
       const paymentRecords = paymentsByBooking[b.booking_id] || [];
       const paidAmount = paymentRecords.filter(p => p.payment_status === "PAID").reduce((sum, p) => sum + Number(p.amount || 0), 0);
       const pendingRecords = paymentRecords.filter(p => p.payment_status === "PENDING");
-      const outstanding = Math.max(0, Number(b.total_amount || 0) - paidAmount);
-      const paymentSummary = outstanding <= 0 ? "PAID" : paidAmount > 0 ? "PARTIALLY PAID" : pendingRecords.length ? "PAYMENT PENDING" : "UNPAID";
-      const bookingStatus = String(b.status_name || b.status?.status_name || b.status || "Unknown").toUpperCase();
-      const canCancel = !["CANCELLED", "CANCELED", "COMPLETED", "FINISHED"].includes(bookingStatus);
+        const bookingStatus = String(
+  b.status_name || b.status?.status_name || b.status || "Unknown"
+).toUpperCase();
+
+const isCancelled = ["CANCELLED", "CANCELED"].includes(bookingStatus);
+
+const outstanding = isCancelled
+  ? 0
+  : Math.max(0, Number(b.total_amount || 0) - paidAmount);
+
+const paymentSummary = isCancelled
+  ? "CANCELLED"
+  : outstanding <= 0
+    ? "PAID"
+    : paidAmount > 0
+      ? "PARTIALLY PAID"
+      : pendingRecords.length
+        ? "PAYMENT PENDING"
+        : "UNPAID";
+       const canCancel = !["CANCELLED", "CANCELED", "COMPLETED", "FINISHED"].includes(bookingStatus);
       const canShowReview = ["COMPLETED", "FINISHED"].includes(bookingStatus);
       const reviewForBooking = reviews.find((review) =>
         String(review.booking_id) === String(b.booking_id)
@@ -284,7 +463,7 @@ function MyBookings() {
         {canShowReview && !reviewForBooking && <p className="mt-4 text-sm text-slate-500">No review is linked to this booking yet. If you have already reviewed this package, refresh the page to reload your review.</p>}
         <div className="mt-5 border-t pt-5">
           {outstanding > 0 && !["CANCELLED", "CANCELED", "COMPLETED", "FINISHED"].includes(bookingStatus) ? <>
-            <h3 className="font-semibold">Submit a payment request</h3><p className="mt-1 text-sm text-slate-600">First payment must be at least 50% of the invoice total. A request does not count as paid until staff verifies it. Submit your real transfer/receipt reference.</p>
+            <h3 className="font-semibold">Submit a payment request</h3><p className="mt-1 text-sm text-slate-600">Full payment is required. Payment requests remain pending until staff verifies them. A request does not count as paid until staff verifies it. Submit your real transfer/receipt reference.</p>
             {pendingRecords.length > 0 && <p className="mt-2 text-sm font-medium text-amber-700">A payment request is awaiting verification. Please wait for staff to verify or reject it before submitting another.</p>}
             <div className="mt-3 grid gap-3 md:grid-cols-4"><select disabled={pendingRecords.length > 0} value={form.payment_method_id || ""} onChange={e => setForm(b.booking_id, { payment_method_id: e.target.value })} className="rounded-lg border px-3 py-2 disabled:bg-slate-100"><option value="">Payment method</option>{methods.map(m => <option key={m.payment_method_id} value={m.payment_method_id}>{m.method_name}</option>)}</select><input disabled={pendingRecords.length > 0} type="number" min="0.01" max={outstanding} step="0.01" value={form.amount || ""} onChange={e => setForm(b.booking_id, { amount: e.target.value })} placeholder={`Amount (max ${money(outstanding)})`} className="rounded-lg border px-3 py-2 disabled:bg-slate-100"/><input disabled={pendingRecords.length > 0} value={form.transaction_reference || ""} onChange={e => setForm(b.booking_id, { transaction_reference: e.target.value })} placeholder="Actual transaction / receipt ID" className="rounded-lg border px-3 py-2 disabled:bg-slate-100"/><button disabled={busyId === b.booking_id || pendingRecords.length > 0} onClick={() => submitPayment(b)} className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{pendingRecords.length > 0 ? "Request pending" : busyId === b.booking_id ? "Submitting..." : "Submit request"}</button></div>
           </> : <p className="text-sm font-semibold text-emerald-700">{outstanding <= 0 ? "Payment complete. No outstanding balance remains." : "Payment requests are unavailable for this booking status."}</p>}

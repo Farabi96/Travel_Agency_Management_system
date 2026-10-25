@@ -22,6 +22,7 @@ from auth_utils import (
     booking_access_allowed,
     get_current_user
 )
+from tasks.booking_notifications import create_booking_notification
 
 
 booking_bp = Blueprint(
@@ -81,7 +82,7 @@ def get_my_bookings():
 # =========================================================
 # CUSTOMER: CANCEL OWN BOOKING (NO AUTOMATIC REFUND)
 # =========================================================
- 
+
 @booking_bp.route("/<int:booking_id>/cancel", methods=["POST"])
 @jwt_required()
 def cancel_my_booking(booking_id):
@@ -168,7 +169,7 @@ def cancel_my_booking(booking_id):
             policy_reason = "Cancelled 30 or more days before travel"
         elif days_before_travel >= 15:
             refund_percentage = Decimal("75.00")
-            policy_reason = "Cancelled 15-29 days before travel" 
+            policy_reason = "Cancelled 15-29 days before travel"
         elif days_before_travel >= 7:
             refund_percentage = Decimal("50.00")
             policy_reason = "Cancelled 7-14 days before travel"
@@ -493,7 +494,7 @@ def get_booking(booking_id):
 # STAFF / ADMIN: ANY CUSTOMER
 # =========================================================
 
- 
+
 # =========================
 # CREATE BOOKING
 # CUSTOMER ONLY
@@ -627,19 +628,22 @@ def create_booking():
                 "requested_seats": number_of_travelers
             }), 409
 
-        # 9. Retrieve the pending booking status
-        pending_status = db.session.get(BookingStatus, 1)
+        # 9. Retrieve the pending booking status.
+        # Use the configured status name instead of relying on a fragile ID.
+        pending_status = BookingStatus.query.filter(
+            db.func.upper(BookingStatus.status_name) == "PENDING"
+        ).first()
 
         if not pending_status:
-            current_app.logger.error(
-                "Pending booking status ID 1 was not found"
+            pending_status = BookingStatus(
+                status_name="PENDING",
+                description="Booking created and awaiting confirmation"
             )
-            return jsonify({
-                "error": "Pending booking status is not configured"
-            }), 500
+            db.session.add(pending_status)
+            db.session.flush()
 
-        # 10. Calculate the booking price on the backend
-        unit_price = Decimal(str(package.base_price))
+        # 10. Calculate the booking price on the backend.
+        unit_price = Decimal(str(package.base_price or 0))
         subtotal = unit_price * number_of_travelers
         discount_amount = Decimal("0.00")
         tax_amount = Decimal("0.00")
@@ -653,6 +657,10 @@ def create_booking():
             customer_id=customer.customer_id,
             package_id=package.package_id,
             schedule_id=schedule.schedule_id,
+            payment_deadline=(
+                datetime.now(ZoneInfo("Asia/Dhaka")).replace(tzinfo=None)
+                + timedelta(minutes=45)
+            ),
             travel_date=departure.date(),
             number_of_travelers=number_of_travelers,
             subtotal=subtotal,
@@ -665,7 +673,43 @@ def create_booking():
         )
 
         db.session.add(booking)
+        db.session.flush()
+        print(
+    "[DEBUG] Deadline before commit:",
+    booking.payment_deadline,
+    flush=True,
+)
+
+        create_booking_notification(
+            booking,
+            title="Payment Required for Your Booking",
+            content=(
+                f"Your booking {booking.booking_reference} has been created. "
+                "Please complete the full payment within 45 minutes. "
+                f"Payment deadline: {booking.payment_deadline.strftime('%d %b %Y, %I:%M %p')} "
+                "Bangladesh time. If payment is not submitted before the deadline, "
+                "your booking may be cancelled automatically."
+            ),
+        )
+
+
+
+        db.session.add(BookingStatusHistory(
+            booking_id=booking.booking_id,
+            old_status_id=None,
+            new_status_id=pending_status.status_id,
+            changed_by=user.user_id,
+            change_reason="Booking created and marked as pending."
+        ))
+
         db.session.commit()
+        db.session.refresh(booking)
+
+        print(
+    "[DEBUG] Deadline after commit:",
+    booking.payment_deadline,
+    flush=True,
+)
 
         # 12. Return the saved booking details
         return jsonify({
@@ -674,6 +718,10 @@ def create_booking():
             "booking_reference": booking.booking_reference,
             "package_id": booking.package_id,
             "schedule_id": booking.schedule_id,
+            "payment_deadline": (
+    booking.payment_deadline.isoformat()
+    if booking.payment_deadline else None
+),
             "travel_date": (
                 booking.travel_date.isoformat()
                 if booking.travel_date else None

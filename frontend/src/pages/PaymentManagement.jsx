@@ -24,6 +24,8 @@ function StatusBadge({ status }) {
     PARTIALLY_PAID: "bg-amber-100 text-amber-700",
     PENDING: "bg-blue-100 text-blue-700",
     UNPAID: "bg-red-100 text-red-700",
+    CANCELLED: "bg-slate-200 text-slate-700",
+REFUNDED: "bg-purple-100 text-purple-700",
   };
 
   return (
@@ -252,6 +254,7 @@ export default function PaymentManagement() {
               <option value="PENDING">Payment pending</option>
               <option value="PARTIALLY_PAID">Partially paid</option>
               <option value="PAID">Paid</option>
+              <option value="CANCELLED">Cancelled bookings</option>
             </select>
           </div>
 

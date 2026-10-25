@@ -1,4 +1,4 @@
- 
+
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import Navbar from "./components/Navbar";
@@ -15,11 +15,13 @@ import Invoices from "./pages/Invoices";
 import PaymentManagement from "./pages/PaymentManagement";
 import BookingTracking from "./pages/BookingTracking";
 import RefundManagement from "./pages/RefundManagement";
+import PackageDetails from "./pages/PackageDetails";
+import DestinationDetails from "./pages/DestinationDetails";
 
 function App() {
   return (
     <BrowserRouter>
-      <Navbar /> 
+      <Navbar />
 
       <Routes>
         <Route path="/" element={<Home />} />
@@ -34,12 +36,17 @@ function App() {
         <Route path="/customer/bookings" element={<MyBookings />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payments" element={<PaymentManagement />} />
+        <Route path="/packages/:packageId" element={<PackageDetails />} />
+        <Route
+  path="/destinations/:destinationId"
+  element={<DestinationDetails />}
+/>
         <Route
   path="/booking-tracking"
   element={<BookingTracking />}
 />
 <Route path="/refunds" element={<RefundManagement />} />
-      </Routes> 
+      </Routes>
     </BrowserRouter>
   );
 }

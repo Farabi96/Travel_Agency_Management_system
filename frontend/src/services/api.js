@@ -1,4 +1,4 @@
- 
+
 const API_BASE_URL = "http://127.0.0.1:5000/api";
 
 // ------------------------------
@@ -15,7 +15,7 @@ async function authenticatedRequest(path, options = {}) {
       ...options.headers,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-  });   
+  });
 
   const data = await response.json().catch(() => ({}));
 
@@ -342,6 +342,12 @@ export async function getMyBookings() {
   return authenticatedRequest("/bookings/mine");
 }
 
+export async function getMyPayments() {
+  return authenticatedRequest("/payments/mine");
+}
+
+
+
 /* ==============================
    INVOICES
 ============================== */
@@ -408,7 +414,7 @@ export async function createReview(reviewData) {
     method: "POST",
     body: JSON.stringify(reviewData),
   });
-} 
+}
 
 export async function cancelBooking(bookingId) {
   return authenticatedRequest(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {

@@ -9,7 +9,7 @@ from flask_jwt_extended import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from extensions import db
- 
+
 from models import User, Role
 
 
@@ -23,7 +23,7 @@ auth_bp = Blueprint(
 # ---------------------------------------------------------
 # REGISTER CUSTOMER
 # ---------------------------------------------------------
- 
+
 @auth_bp.route("/register", methods=["POST"])
 def register():
     data = request.get_json()

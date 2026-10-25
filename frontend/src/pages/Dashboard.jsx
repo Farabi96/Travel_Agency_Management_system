@@ -29,6 +29,7 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+import CustomerDashboard from "./CustomerDashboard";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -590,6 +591,10 @@ const chartColors = [
       </main>
     );
   }
+
+  if (user.role_name === "CUSTOMER") {
+  return <CustomerDashboard user={user} />;
+}
 
   const dashboardInfo = {
     STAFF: {

@@ -1,4 +1,4 @@
-﻿import os
+import os
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
@@ -87,15 +87,19 @@ def roles():
     return "<br>".join(
         f"{role.role_id} - {role.role_name}"
         for role in roles
-    ) 
+    )
 
 # Start the scheduled task only in the serving process, not Flask's debug reloader
+
 def run_completion_job(flask_app):
-    """Run scheduled booking completion inside Flask's application context."""
+    """Run scheduled booking jobs inside Flask's application context."""
     from tasks.booking_completion import complete_returned_journeys
+    from tasks.booking_expiry import expire_unpaid_bookings
 
     with flask_app.app_context():
         complete_returned_journeys()
+        expire_unpaid_bookings()
+
 
 
 if __name__ == "__main__":

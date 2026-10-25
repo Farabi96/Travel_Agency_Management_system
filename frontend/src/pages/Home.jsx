@@ -69,6 +69,19 @@ export default function Home() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
+  const token = sessionStorage.getItem("access_token");
+
+ function handlePackageClick() {
+  const token = sessionStorage.getItem("access_token");
+  const user = JSON.parse(sessionStorage.getItem("user") || "null");
+
+  if (!token || !user) {
+    navigate("/login");
+    return;
+  }
+
+  navigate("/packages");
+}
 
   useEffect(() => {
   let active = true;
@@ -285,13 +298,15 @@ const visibleDestinations = destinations.filter((destination) => {
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {visibleDestinations.map((destination, index) => (
-                 <article
+                  <article
   key={destination.destination_id ?? destination.name}
-  onClick={() => navigate("/login")}
+  onClick={() =>
+    navigate(`/destinations/${destination.destination_id}`)
+  }
   onKeyDown={(event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      navigate("/login");
+      navigate(`/destinations/${destination.destination_id}`);
     }
   }}
   role="link"
@@ -357,13 +372,13 @@ const visibleDestinations = destinations.filter((destination) => {
                 .map((item, index) => (
                    <article
   key={item.package_id}
-  onClick={() => navigate("/login")}
-  onKeyDown={(event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      navigate("/login");
-    }
-  }}
+  onClick={handlePackageClick}
+onKeyDown={(event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    handlePackageClick();
+  }
+}}
   role="link"
   tabIndex={0}
   className="cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-xl"
