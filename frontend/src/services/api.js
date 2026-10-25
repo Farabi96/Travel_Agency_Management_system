@@ -448,6 +448,28 @@ export async function markNotificationRead(notificationId) {
 }
 
 
+/* ==============================
+   STAFF / ADMIN NOTIFICATIONS
+============================== */
+
+export async function getStaffNotifications() {
+  return authenticatedRequest("/staff-notifications/");
+}
+
+export async function getStaffUnreadNotificationCount() {
+  return authenticatedRequest("/staff-notifications/unread-count");
+}
+
+export async function markStaffNotificationRead(notificationId) {
+  return authenticatedRequest(
+    `/staff-notifications/${encodeURIComponent(notificationId)}/read`,
+    {
+      method: "PUT",
+    }
+  );
+}
+
+
 // Get reviews submitted by the currently logged-in customer
 export async function getMyReviews() {
   return authenticatedRequest("/reviews/");
@@ -482,4 +504,18 @@ export async function updateRefund(refundId, refundData) {
       body: JSON.stringify(refundData),
     }
   );
+}
+export async function getAuditLogs() {
+  return authenticatedRequest('/audit-logs/');
+}
+
+export async function getTravelCalendar() {
+  return authenticatedRequest("/bookings/travel-calendar");
+}
+
+
+export async function markAllStaffNotificationsRead() {
+  return authenticatedRequest("/staff-notifications/read-all", {
+    method: "PUT",
+  });
 }

@@ -26,6 +26,8 @@ from models.payment_status import PaymentStatus
 from models.payment import Payment
 from models.notice import Notice
 from models.customer_notification import CustomerNotification
+from models.staff_notification import StaffNotification
+
 from models.review import Review
 from models.favorite import Favorite
 from models.audit_log import AuditLog

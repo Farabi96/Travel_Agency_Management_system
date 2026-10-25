@@ -12,6 +12,9 @@ import { useEffect, useState } from "react";
 import {
   getNotifications,
   markNotificationRead,
+  getStaffNotifications,
+  markStaffNotificationRead,
+  markAllStaffNotificationsRead,
 } from "../services/api";
 
 export default function Navbar() {
@@ -26,6 +29,7 @@ export default function Navbar() {
 
   const token = sessionStorage.getItem("access_token");
 
+
   
   let user = null;
 
@@ -37,17 +41,23 @@ export default function Navbar() {
   }
 
   const isLoggedIn = Boolean(token && user);
-  const isCustomer = isLoggedIn && user.role_name === "CUSTOMER";
+const isCustomer = isLoggedIn && user.role_name === "CUSTOMER";
+
+const isStaffOrAdmin =
+  isLoggedIn &&
+  ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
 
   const unreadCount = notifications.filter(
     (notification) => !notification.is_read
   ).length;
 
-  useEffect(() => {
+   
+
+ useEffect(() => {
     let cancelled = false;
 
     async function loadNotifications() {
-      if (!isCustomer || !token) {
+      if ((!isCustomer && !isStaffOrAdmin) || !token) {
         setNotifications([]);
         return;
       }
@@ -56,7 +66,9 @@ export default function Navbar() {
       setNotificationsError("");
 
       try {
-        const data = await getNotifications();
+        const data = isCustomer
+          ? await getNotifications()
+          : await getStaffNotifications();
 
         if (!cancelled) {
           setNotifications(Array.isArray(data) ? data : []);
@@ -79,7 +91,7 @@ export default function Navbar() {
     return () => {
       cancelled = true;
     };
-  }, [isCustomer, token]);
+  }, [isCustomer, isStaffOrAdmin, token]);
 
   function handleLogout() {
     sessionStorage.removeItem("access_token");
@@ -92,34 +104,41 @@ export default function Navbar() {
     navigate("/");
   }
     async function handleMarkRead(notification) {
-    if (notification.is_read || markingReadId !== null) {
-      return;
-    }
-
-    const notificationId = notification.notification_id;
-
-    setMarkingReadId(notificationId);
-    setNotificationsError("");
-
-    try {
-      await markNotificationRead(notificationId);
-
-      setNotifications((current) =>
-        current.map((item) =>
-          item.notification_id === notificationId
-            ? { ...item, is_read: true }
-            : item
-        )
-      );
-    } catch (error) {
-      setNotificationsError(
-        error.message || "Could not mark notification as read."
-      );
-    } finally {
-      setMarkingReadId(null);
-    }
+  if (notification.is_read || markingReadId !== null) {
+    return;
   }
- 
+
+  const notificationId = notification.notification_id;
+
+  setMarkingReadId(notificationId);
+  setNotificationsError("");
+
+  try {
+    if (isCustomer) {
+      await markNotificationRead(notificationId);
+    } else {
+      await markStaffNotificationRead(notificationId);
+    }
+
+    setNotifications((current) =>
+      current.map((item) =>
+        item.notification_id === notificationId
+          ? {
+              ...item,
+              is_read: true,
+              read_at: new Date().toISOString(),
+            }
+          : item
+      )
+    );
+  } catch (error) {
+    setNotificationsError(
+      error.message || "Could not mark notification as read."
+    );
+  } finally {
+    setMarkingReadId(null);
+  }
+}
 
   const roleLabel = {
     HIGHER_ADMIN: "Admin",
@@ -138,15 +157,19 @@ export default function Navbar() {
   isLoggedIn &&
   ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
 
+ 
+async function handleNotificationToggle() {
+  const willOpen = !notificationsOpen;
+  setNotificationsOpen(willOpen);
 
-  async function handleNotificationToggle() {
-    const willOpen = !notificationsOpen;
-    setNotificationsOpen(willOpen);
+  if (!willOpen || notificationsLoading) {
+    return;
+  }
 
-    if (!willOpen || !isCustomer || notificationsLoading) {
-      return;
-    }
+  setNotificationsError("");
 
+  // Staff/Admin: persist read status in the database.
+  if (isStaffOrAdmin) {
     const unreadNotifications = notifications.filter(
       (notification) => !notification.is_read
     );
@@ -155,31 +178,58 @@ export default function Navbar() {
       return;
     }
 
-    setNotificationsError("");
+    try {
+      await markAllStaffNotificationsRead();
 
-    // Keep every notification in history; only mark it as read.
-    for (const notification of unreadNotifications) {
-      try {
-        await markNotificationRead(notification.notification_id);
+      setNotifications((current) =>
+        current.map((notification) => ({
+          ...notification,
+          is_read: true,
+          read_at:
+            notification.read_at || new Date().toISOString(),
+        }))
+      );
+    } catch (error) {
+      setNotificationsError(
+        error.message || "Could not mark notifications as read."
+      );
+    }
 
-        setNotifications((current) =>
-          current.map((item) =>
-            item.notification_id === notification.notification_id
-              ? {
-                  ...item,
-                  is_read: true,
-                  read_at: new Date().toISOString(),
-                }
-              : item
-          )
-        );
-      } catch (error) {
-        setNotificationsError(
-          error.message || "Could not mark notifications as read."
-        );
-      }
+    return;
+  }
+
+  // Customer: preserve the existing behavior.
+  if (!isCustomer) {
+    return;
+  }
+
+  const unreadNotifications = notifications.filter(
+    (notification) => !notification.is_read
+  );
+
+  for (const notification of unreadNotifications) {
+    try {
+      await markNotificationRead(notification.notification_id);
+
+      setNotifications((current) =>
+        current.map((item) =>
+          item.notification_id === notification.notification_id
+            ? {
+                ...item,
+                is_read: true,
+                read_at: new Date().toISOString(),
+              }
+            : item
+        )
+      );
+    } catch (error) {
+      setNotificationsError(
+        error.message || "Could not mark notifications as read."
+      );
     }
   }
+}
+
 
 
 
@@ -242,11 +292,11 @@ export default function Navbar() {
                     </p>
 
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      {notification.priority && (
-                        <span className="rounded-full bg-slate-100 px-2 py-1">
-                          {notification.priority}
-                        </span>
-                      )}
+                      {(notification.priority || notification.notification_type) && (
+  <span className="rounded-full bg-slate-100 px-2 py-1">
+    {notification.priority || notification.notification_type}
+  </span>
+)}
 
                       {notification.created_at && (
                         <span>
@@ -258,20 +308,28 @@ export default function Navbar() {
                     </div>
                   </div>
 
-                  {!notification.is_read && (
-                    <button
-                      type="button"
-                      title="Mark as read"
-                      aria-label={`Mark ${notification.title || "notification"} as read`}
-                      disabled={
-                        markingReadId !== null
-                      }
-                      onClick={() => handleMarkRead(notification)}
-                      className="shrink-0 rounded-lg p-2 text-teal-700 hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <CheckCheck size={18} />
-                    </button>
-                  )}
+                
+{notification.is_read ? (
+  <span
+    title="Read"
+    aria-label="Read"
+    className="shrink-0 rounded-lg p-2 text-teal-600"
+  >
+    <CheckCheck size={18} />
+  </span>
+) : (
+  <button
+    type="button"
+    title="Mark as read"
+    aria-label={`Mark ${notification.title || "notification"} as read`}
+    disabled={markingReadId !== null}
+    onClick={() => handleMarkRead(notification)}
+    className="shrink-0 rounded-lg p-2 text-slate-500 hover:bg-teal-100 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    <CheckCheck size={18} />
+  </button>
+)}
+
                 </div>
 
                 {markingReadId === notification.notification_id && (
@@ -381,6 +439,7 @@ export default function Navbar() {
                   {renderNotificationButton()}
                 </>
               )}
+              {isStaffOrAdmin && renderNotificationButton()}
 
               {canManageInvoices && (
                 <Link
@@ -516,6 +575,7 @@ export default function Navbar() {
                   {renderNotificationButton()}
                 </>
               )}
+              {isStaffOrAdmin && renderNotificationButton()}
 
               {canManageInvoices && (
                 <Link
