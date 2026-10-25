@@ -1,4 +1,4 @@
-import os
+﻿import os
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
@@ -19,6 +19,7 @@ from routes.payment_routes import payment_bp
 from routes.staff_routes import staff_bp
 from routes.notice_routes import notice_bp
 from routes.customer_notification_routes import customer_notification_bp
+from routes.staff_notification_routes import staff_notification_bp
 from routes.review_routes import review_bp
 from routes.favorite_routes import favorite_bp
 from routes.audit_log_routes import audit_log_bp
@@ -57,6 +58,7 @@ app.register_blueprint(payment_bp)
 app.register_blueprint(staff_bp)
 app.register_blueprint(notice_bp)
 app.register_blueprint(customer_notification_bp)
+app.register_blueprint(staff_notification_bp)
 app.register_blueprint(review_bp)
 app.register_blueprint(favorite_bp)
 app.register_blueprint(audit_log_bp)

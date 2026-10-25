@@ -30,6 +30,7 @@ import {
   Legend,
 } from "recharts";
 import CustomerDashboard from "./CustomerDashboard";
+import StaffDashboard from "./StaffDashboard";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -596,50 +597,14 @@ const chartColors = [
   return <CustomerDashboard user={user} />;
 }
 
-  const dashboardInfo = {
-    STAFF: {
-      title: "Staff Dashboard",
-      description:
-        "Manage bookings, customer services, and travel operations.",
-    },
-    CUSTOMER: {
-      title: "Customer Dashboard",
-      description: "Explore tours and manage your travel bookings.",
-    },
-  };
 
-  const info = dashboardInfo[user.role_name];
+if (user.role_name === "STAFF") {
+  return <StaffDashboard user={user} />;
+}
 
-  if (!info) {
-    return (
-      <main className="p-8 text-center text-red-700">
-        Your account role is not recognized. Please contact the administrator.
-      </main>
-    );
-  }
-
-  return (
-    <main className="min-h-[80vh] bg-slate-50 px-6 py-12">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="text-3xl font-bold text-slate-900">{info.title}</h1>
-        <p className="mt-3 text-slate-600">Welcome, {user.username}!</p>
-        <p className="mt-2 text-slate-700">{info.description}</p>
-
-        <div className="mt-8 flex flex-wrap gap-4">
-          <Link
-            to="/destinations"
-            className="rounded-lg bg-teal-600 px-5 py-3 font-semibold text-white hover:bg-teal-700"
-          >
-            Explore Destinations
-          </Link>
-          <Link
-            to="/packages"
-            className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-800 hover:bg-slate-100"
-          >
-            Browse Packages
-          </Link>
-        </div>
-      </div>
-    </main>
-  );
+return (
+  <main className="p-8 text-center text-red-700">
+    Your account role is not recognized. Please contact the administrator.
+  </main>
+);
 }

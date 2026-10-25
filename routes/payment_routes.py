@@ -13,6 +13,7 @@ from models import (
 )
 from auth_utils import get_current_user, role_required, is_staff_or_admin
 from zoneinfo import ZoneInfo
+from tasks.staff_notifications import notify_staff_and_admins
 
 payment_bp = Blueprint("payment", __name__, url_prefix="/api/payments")
 CENT = Decimal("0.01")
@@ -372,6 +373,33 @@ def create_payment():
         )
         db.session.add(payment)
         db.session.commit()
+        try:
+            package_name = (
+                booking.package.package_name
+                if booking.package else "Package unavailable"
+            )
+
+            notify_staff_and_admins(
+                title="New Payment Request",
+                content=(
+                    f"A customer submitted a payment request.\n"
+                    f"Booking: {booking.booking_reference}\n"
+                    f"Package: {package_name}\n"
+                    f"Amount: {amount}"
+                ),
+                notification_type="PAYMENT",
+                booking_id=booking.booking_id,
+                payment_id=payment.payment_id,
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Payment notification failed for payment %s",
+                payment.payment_id,
+            )
+
+
+
         return jsonify({"message": "Payment request submitted and awaiting verification", "payment": payment_to_dict(payment), "invoice_id": invoice.invoice_id}), 201
     except Exception:
         db.session.rollback()

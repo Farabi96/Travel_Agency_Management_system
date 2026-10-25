@@ -23,7 +23,7 @@ from auth_utils import (
     get_current_user
 )
 from tasks.booking_notifications import create_booking_notification
-
+from tasks.staff_notifications import notify_staff_and_admins
 
 booking_bp = Blueprint(
     "booking",
@@ -705,11 +705,38 @@ def create_booking():
         db.session.commit()
         db.session.refresh(booking)
 
+        try:
+            schedule = booking.schedule
+            departure = (
+                schedule.departure_datetime.strftime("%d %b %Y, %I:%M %p")
+                if schedule and schedule.departure_datetime
+                else "Not specified"
+            )
+
+            notify_staff_and_admins(
+                title="New Booking Received",
+                content=(
+                    f"Booking {booking.booking_reference} has been created.\n"
+                    f"Package: {booking.package.package_name}\n"
+                    f"Travelers: {booking.number_of_travelers}\n"
+                    f"Departure: {departure}"
+                ),
+                notification_type="BOOKING",
+                booking_id=booking.booking_id,
+            )
+        except Exception as notification_error:
+            app_logger = __import__("logging").getLogger(__name__)
+            app_logger.exception(
+                "Booking notification failed for booking %s: %s",
+                booking.booking_id,
+                notification_error,
+            )
+
         print(
-    "[DEBUG] Deadline after commit:",
-    booking.payment_deadline,
-    flush=True,
-)
+            "[DEBUG] Deadline after commit:",
+            booking.payment_deadline,
+            flush=True,
+        )
 
         # 12. Return the saved booking details
         return jsonify({
@@ -781,6 +808,97 @@ def get_booking_travelers(booking_id):
         }
         for traveler in travelers
     ])
+
+
+
+# =========================================================
+# STAFF TRAVEL CALENDAR
+# =========================================================
+
+@booking_bp.route("/travel-calendar", methods=["GET"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_travel_calendar():
+    now = datetime.now(ZoneInfo("Asia/Dhaka")).replace(tzinfo=None)
+
+    bookings = (
+        Booking.query
+        .order_by(Booking.booking_id.desc())
+        .all()
+    )
+
+    trips = []
+
+    for booking in bookings:
+        schedule = booking.schedule
+        customer = booking.customer
+        package = booking.package
+
+        if not schedule or not schedule.departure_datetime:
+            continue
+
+        departure = schedule.departure_datetime
+        return_time = schedule.return_datetime
+
+        # Only show upcoming departures.
+        if departure < now:
+            continue
+
+        booking_status = (
+            booking.status.status_name.upper()
+            if booking.status else "UNKNOWN"
+        )
+
+        # Exclude cancelled bookings.
+        if booking_status in ("CANCELLED", "CANCELED"):
+            continue
+
+        travelers = BookingTraveler.query.filter_by(
+            booking_id=booking.booking_id
+        ).order_by(BookingTraveler.traveler_id.asc()).all()
+
+        customer_name = "Unknown customer"
+        customer_phone = None
+
+        if customer:
+            customer_name = " ".join(
+                part for part in [
+                    customer.first_name,
+                    customer.last_name
+                ]
+                if part
+            ).strip() or "Unknown customer"
+
+            customer_phone = customer.phone
+
+        trips.append({
+            "booking_id": booking.booking_id,
+            "booking_reference": booking.booking_reference,
+            "package_name": (
+                package.package_name
+                if package else "Package unavailable"
+            ),
+            "departure_datetime": departure.isoformat(),
+            "return_datetime": (
+                return_time.isoformat() if return_time else None
+            ),
+            "booking_status": booking_status,
+            "customer_name": customer_name,
+            "customer_phone": customer_phone,
+            "number_of_travelers": booking.number_of_travelers,
+            "travelers": [
+                {
+                    "traveler_id": traveler.traveler_id,
+                    "full_name": traveler.full_name,
+                }
+                for traveler in travelers
+            ],
+        })
+
+    trips.sort(key=lambda trip: trip["departure_datetime"])
+
+    return jsonify(trips), 200
+
 
 
 # =========================================================

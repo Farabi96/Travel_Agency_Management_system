@@ -1,0 +1,164 @@
+﻿
+routes\admin_routes.py:59:@admin_bp.route("/test", methods=["GET"])
+routes\admin_routes.py:68:@admin_bp.route("/permission-test", methods=["GET"])
+routes\admin_routes.py:81:@admin_bp.route("/stats", methods=["GET"])
+routes\admin_routes.py:233:@admin_bp.route("/users", methods=["GET"])
+routes\admin_routes.py:310:@admin_bp.route("/users", methods=["POST"])
+routes\admin_routes.py:512:@admin_bp.route("/users/<int:user_id>/status", methods=["PATCH"])
+routes\admin_routes.py:595:@admin_bp.route("/refunds", methods=["GET"])
+routes\admin_routes.py:598:def get_refunds():
+routes\admin_routes.py:643:@admin_bp.route("/refunds/<int:refund_id>", methods=["PATCH"])
+routes\admin_routes.py:646:def update_refund(refund_id):
+routes\audit_log_routes.py:16:@audit_log_bp.route("/", methods=["GET"])
+routes\audit_log_routes.py:41:@audit_log_bp.route("/<int:log_id>", methods=["GET"])
+routes\audit_log_routes.py:66:@audit_log_bp.route("/", methods=["POST"])
+routes\audit_log_routes.py:121:@audit_log_bp.route("/<int:log_id>", methods=["DELETE"])
+routes\auth_routes.py:27:@auth_bp.route("/register", methods=["POST"])
+routes\auth_routes.py:106:@auth_bp.route("/login", methods=["POST"])
+routes\auth_routes.py:182:@auth_bp.route("/me", methods=["GET"])
+routes\auth_routes.py:213:@auth_bp.route("/change-password", methods=["PUT"])
+routes\booking_routes.py:38:@booking_bp.route("/mine", methods=["GET"])
+routes\booking_routes.py:40:def get_my_bookings():
+routes\booking_routes.py:85:@booking_bp.route("/<int:booking_id>/cancel", methods=["POST"])
+routes\booking_routes.py:87:def cancel_my_booking(booking_id):
+routes\booking_routes.py:308:@booking_bp.route("/", methods=["GET"])
+routes\booking_routes.py:311:def get_bookings():
+routes\booking_routes.py:339:@booking_bp.route("/tracking", methods=["GET"])
+routes\booking_routes.py:342:def get_booking_tracking():
+routes\booking_routes.py:463:@booking_bp.route("/<int:booking_id>", methods=["GET"])
+routes\booking_routes.py:465:def get_booking(booking_id):
+routes\booking_routes.py:502:@booking_bp.route("/", methods=["POST"])
+routes\booking_routes.py:504:def create_booking():
+routes\booking_routes.py:700:@booking_bp.route(
+routes\booking_routes.py:705:def get_booking_travelers(booking_id):
+routes\booking_routes.py:742:@booking_bp.route(
+routes\booking_routes.py:747:def create_booking_traveler(booking_id):
+routes\booking_routes.py:819:@booking_bp.route(
+routes\booking_routes.py:824:def get_booking_statuses():
+routes\booking_routes.py:843:@booking_bp.route(
+routes\booking_routes.py:849:def update_booking_status(booking_id):
+routes\booking_routes.py:957:@booking_bp.route(
+routes\booking_routes.py:962:def get_booking_status_history(booking_id):
+routes\booking_routes_backup.py:34:@booking_bp.route("/mine", methods=["GET"])
+routes\booking_routes_backup.py:36:def get_my_bookings():
+routes\booking_routes_backup.py:82:@booking_bp.route("/", methods=["GET"])
+routes\booking_routes_backup.py:85:def get_bookings():
+routes\booking_routes_backup.py:114:@booking_bp.route("/<int:booking_id>", methods=["GET"])
+routes\booking_routes_backup.py:116:def get_booking(booking_id):
+routes\booking_routes_backup.py:151:@booking_bp.route("/", methods=["POST"])
+routes\booking_routes_backup.py:152:def create_booking():
+routes\booking_routes_backup.py:295:@booking_bp.route(
+routes\booking_routes_backup.py:300:def get_booking_travelers(booking_id):
+routes\booking_routes_backup.py:337:@booking_bp.route(
+routes\booking_routes_backup.py:342:def create_booking_traveler(booking_id):
+routes\booking_routes_backup.py:414:@booking_bp.route(
+routes\booking_routes_backup.py:419:def get_booking_statuses():
+routes\booking_routes_backup.py:438:@booking_bp.route(
+routes\booking_routes_backup.py:444:def update_booking_status(booking_id):
+routes\booking_routes_backup.py:552:@booking_bp.route(
+routes\booking_routes_backup.py:557:def get_booking_status_history(booking_id):
+routes\customer_notification_routes.py:61:@customer_notification_bp.route("/", methods=["GET"])
+routes\customer_notification_routes.py:100:@customer_notification_bp.route(
+routes\customer_notification_routes.py:136:@customer_notification_bp.route("/", methods=["POST"])
+routes\customer_notification_routes.py:200:@customer_notification_bp.route(
+routes\customer_notification_routes.py:243:@customer_notification_bp.route(
+routes\customer_routes.py:33:@customer_bp.route("/", methods=["GET"])
+routes\customer_routes.py:69:@customer_bp.route("/<int:customer_id>", methods=["GET"])
+routes\customer_routes.py:106:@customer_bp.route("/", methods=["POST"])
+routes\customer_routes.py:182:@customer_bp.route("/me", methods=["GET"])
+routes\customer_routes.py:233:@customer_bp.route("/me", methods=["POST"])
+routes\customer_routes.py:323:@customer_bp.route("/me", methods=["PUT"])
+routes\customer_routes.py:454:@customer_bp.route(
+routes\customer_routes.py:497:@customer_bp.route(
+routes\customer_routes.py:568:@customer_bp.route(
+routes\customer_routes.py:598:@customer_bp.route(
+routes\customer_routes.py:658:@customer_bp.route(
+routes\customer_routes.py:663:def get_customer_bookings(customer_id):
+routes\destination_routes.py:52:@destination_bp.route("/", methods=["GET"])
+routes\destination_routes.py:58:@destination_bp.route("/", methods=["POST"])
+routes\destination_routes.py:107:@destination_bp.route("/<int:destination_id>", methods=["PUT"])
+routes\destination_routes.py:155:@destination_bp.route("/<int:destination_id>", methods=["DELETE"])
+routes\favorite_routes.py:16:@favorite_bp.route("/", methods=["GET"])
+routes\favorite_routes.py:51:@favorite_bp.route("/<int:favorite_id>", methods=["GET"])
+routes\favorite_routes.py:81:@favorite_bp.route("/", methods=["POST"])
+routes\favorite_routes.py:140:@favorite_bp.route("/<int:favorite_id>", methods=["DELETE"])
+routes\favorite_routes.py:170:@favorite_bp.route("/package/<int:package_id>", methods=["DELETE"])
+routes\invoice_routes.py:29:def can_access_booking(user, booking):
+routes\invoice_routes.py:91:@invoice_bp.route("/", methods=["GET"])
+routes\invoice_routes.py:111:@invoice_bp.route("/<int:invoice_id>", methods=["GET"])
+routes\invoice_routes.py:136:@invoice_bp.route("/booking/<int:booking_id>", methods=["GET"])
+routes\invoice_routes.py:138:def get_invoice_by_booking(booking_id):
+routes\invoice_routes.py:168:@invoice_bp.route("/", methods=["POST"])
+routes\notice_routes.py:56:@notice_bp.route("/", methods=["GET"])
+routes\notice_routes.py:89:@notice_bp.route("/active", methods=["GET"])
+routes\notice_routes.py:122:@notice_bp.route("/<int:notice_id>", methods=["GET"])
+routes\notice_routes.py:164:@notice_bp.route("/", methods=["POST"])
+routes\notice_routes.py:245:@notice_bp.route("/<int:notice_id>", methods=["PUT"])
+routes\notice_routes.py:316:@notice_bp.route("/<int:notice_id>", methods=["DELETE"])
+routes\payment_routes.py:21:def payment_to_dict(payment):
+routes\payment_routes.py:43:def can_access_booking(user, booking):
+routes\payment_routes.py:50:def find_payment_status(name):
+routes\payment_routes.py:54:def paid_amount_for_booking(booking_id):
+routes\payment_routes.py:65:def applicable_total(booking, invoice=None):
+routes\payment_routes.py:69:def outstanding_amount(booking, invoice=None):
+routes\payment_routes.py:73:def get_or_create_invoice(booking, user_id=None):
+routes\payment_routes.py:108:def payment_summary_for_booking(booking, invoice=None):
+routes\payment_routes.py:127:@payment_bp.route("/methods", methods=["GET"])
+routes\payment_routes.py:128:def get_payment_methods():
+routes\payment_routes.py:139:@payment_bp.route("/statuses", methods=["GET"])
+routes\payment_routes.py:141:def get_payment_statuses():
+routes\payment_routes.py:149:@payment_bp.route("/mine", methods=["GET"])
+routes\payment_routes.py:151:def get_my_payments():
+routes\payment_routes.py:162:@payment_bp.route("/", methods=["GET"])
+routes\payment_routes.py:164:def get_payments():
+routes\payment_routes.py:168:@payment_bp.route("/overview", methods=["GET"])
+routes\payment_routes.py:170:def get_payment_overview():
+routes\payment_routes.py:190:@payment_bp.route("/<int:payment_id>", methods=["GET"])
+routes\payment_routes.py:192:def get_payment(payment_id):
+routes\payment_routes.py:202:@payment_bp.route("/booking/<int:booking_id>", methods=["GET"])
+routes\payment_routes.py:204:def get_booking_payments(booking_id):
+routes\payment_routes.py:215:@payment_bp.route("/invoice/<int:invoice_id>", methods=["GET"])
+routes\payment_routes.py:217:def get_invoice_payments(invoice_id):
+routes\payment_routes.py:229:@payment_bp.route("/", methods=["POST"])
+routes\payment_routes.py:231:def create_payment():
+routes\payment_routes.py:320:@payment_bp.route("/record", methods=["POST"])
+routes\payment_routes.py:322:def record_offline_payment():
+routes\payment_routes.py:387:def update_invoice_status(booking_id, invoice):
+routes\payment_routes.py:400:def confirm_booking_if_fully_paid(booking, user_id):
+routes\payment_routes.py:438:@payment_bp.route("/<int:payment_id>/status", methods=["PUT"])
+routes\payment_routes.py:440:def update_payment_status(payment_id):
+routes\review_routes.py:19:@review_bp.route("/package/<int:package_id>", methods=["GET"])
+routes\review_routes.py:56:@review_bp.route("/eligibility/<int:package_id>", methods=["GET"])
+routes\review_routes.py:111:@review_bp.route("/", methods=["GET"])
+routes\review_routes.py:160:@review_bp.route("/<int:review_id>", methods=["GET"])
+routes\review_routes.py:200:@review_bp.route("/", methods=["POST"])
+routes\review_routes.py:335:@review_bp.route("/<int:review_id>", methods=["PUT"])
+routes\review_routes.py:403:@review_bp.route("/<int:review_id>/status", methods=["PUT"])
+routes\review_routes.py:453:@review_bp.route("/<int:review_id>", methods=["DELETE"])
+routes\staff_routes.py:19:@staff_bp.route("/", methods=["GET"])
+routes\staff_routes.py:51:@staff_bp.route("/<int:staff_id>", methods=["GET"])
+routes\staff_routes.py:78:@staff_bp.route("/", methods=["POST"])
+routes\staff_routes.py:170:@staff_bp.route("/<int:staff_id>", methods=["PUT"])
+routes\staff_routes.py:237:@staff_bp.route(
+routes\staff_routes.py:268:@staff_bp.route(
+routes\staff_routes.py:321:@staff_bp.route(
+routes\system_setting_routes.py:16:@system_setting_bp.route("/", methods=["GET"])
+routes\system_setting_routes.py:38:@system_setting_bp.route("/<string:setting_key>", methods=["GET"])
+routes\system_setting_routes.py:62:@system_setting_bp.route("/", methods=["POST"])
+routes\system_setting_routes.py:112:@system_setting_bp.route("/<string:setting_key>", methods=["PUT"])
+routes\system_setting_routes.py:153:@system_setting_bp.route("/<string:setting_key>", methods=["DELETE"])
+routes\tour_package_routes.py:115:@tour_package_bp.route("/", methods=["GET"])
+routes\tour_package_routes.py:121:@tour_package_bp.route("/<int:package_id>", methods=["GET"])
+routes\tour_package_routes.py:127:@tour_package_bp.route("/", methods=["POST"])
+routes\tour_package_routes.py:200:@tour_package_bp.route("/<int:package_id>", methods=["PUT"])
+routes\tour_package_routes.py:266:@tour_package_bp.route("/<int:package_id>", methods=["DELETE"])
+routes\tour_schedule_routes.py:70:@tour_schedule_bp.route("/", methods=["GET"])
+routes\tour_schedule_routes.py:85:@tour_schedule_bp.route("/<int:schedule_id>", methods=["GET"])
+routes\tour_schedule_routes.py:95:@tour_schedule_bp.route("/", methods=["POST"])
+routes\tour_schedule_routes.py:143:@tour_schedule_bp.route("/<int:schedule_id>", methods=["PUT"])
+routes\tour_schedule_routes.py:217:@tour_schedule_bp.route("/<int:schedule_id>", methods=["DELETE"])
+routes\tour_schedule_routes.py:247:@tour_schedule_bp.route("/<int:schedule_id>/availability", methods=["GET"])
+routes\upload_routes.py:22:@upload_bp.route("/", methods=["POST"])
+routes\upload_routes.py:58:@upload_bp.route("/<path:filename>", methods=["GET"])
+
+
