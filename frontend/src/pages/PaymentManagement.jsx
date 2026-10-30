@@ -41,6 +41,9 @@ REFUNDED: "bg-purple-100 text-purple-700",
 
 export default function PaymentManagement() {
   const [bookings, setBookings] = useState([]);
+  const outstandingBookings = bookings.filter(
+  (b) => Number(b.balance) > 0
+);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
@@ -225,7 +228,7 @@ export default function PaymentManagement() {
           <h2 className="text-lg font-semibold text-slate-900">Record an Offline Payment</h2>
           <p className="mt-1 text-sm text-slate-600">Use this only after receiving cash or confirming a bank transfer. Recorded payments are immediately marked PAID.</p>
           <form onSubmit={handleRecordOfflinePayment} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <select required value={offlineForm.booking_id} onChange={(e) => setOfflineForm((f) => ({ ...f, booking_id: e.target.value }))} className="rounded-lg border border-slate-300 px-3 py-2"><option value="">Select booking (ID / reference / customer)</option>{bookings.map((b) => <option key={b.booking_id} value={b.booking_id}>#{b.booking_id} · {b.booking_reference} · {b.customer_name}</option>)}</select>
+            <select required value={offlineForm.booking_id} onChange={(e) => setOfflineForm((f) => ({ ...f, booking_id: e.target.value }))} className="rounded-lg border border-slate-300 px-3 py-2"><option value="">Select booking (ID / reference / customer)</option> {outstandingBookings.map((b) => <option key={b.booking_id} value={b.booking_id}>#{b.booking_id} · {b.booking_reference} · {b.customer_name}</option>)}</select>
             <select required value={offlineForm.payment_method_id} onChange={(e) => setOfflineForm((f) => ({ ...f, payment_method_id: e.target.value }))} className="rounded-lg border border-slate-300 px-3 py-2"><option value="">Payment method</option>{offlineMethods.map((m) => <option key={m.payment_method_id} value={m.payment_method_id}>{m.method_name}</option>)}</select>
             <input type="number" min="0.01" step="0.01" required value={offlineForm.amount} onChange={(e) => setOfflineForm((f) => ({ ...f, amount: e.target.value }))} placeholder="Amount (BDT)" className="rounded-lg border border-slate-300 px-3 py-2" />
             <input value={offlineForm.transaction_reference} onChange={(e) => setOfflineForm((f) => ({ ...f, transaction_reference: e.target.value }))} placeholder="Reference (optional)" className="rounded-lg border border-slate-300 px-3 py-2" />
