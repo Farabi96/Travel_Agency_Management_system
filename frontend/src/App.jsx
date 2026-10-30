@@ -1,8 +1,10 @@
+
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import Destinations from "./pages/Destinations";
+import DestinationDetails from "./pages/DestinationDetails";
 import Packages from "./pages/Packages";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -21,19 +23,17 @@ import ActivityLogs from "./pages/ActivityLogs";
 import StaffActivity from "./pages/StaffActivity";
 import StaffActivityDetails from "./pages/StaffActivityDetails";
 
-
 function AppLayout() {
   const location = useLocation();
 
   let user = null;
+
   try {
     user = JSON.parse(sessionStorage.getItem("user") || "null");
   } catch {
     user = null;
   }
 
-  // The Higher Admin dashboard has its own sidebar and header.
-  // Keep the public navbar on every other route and for other roles.
   const isHigherAdminDashboard =
     location.pathname === "/dashboard" &&
     user?.role_name === "HIGHER_ADMIN";
@@ -41,13 +41,23 @@ function AppLayout() {
   return (
     <>
       {!isHigherAdminDashboard && <Navbar />}
+
       <Routes>
         <Route path="/" element={<Home />} />
+
         <Route path="/destinations" element={<Destinations />} />
+
+        {/* Destination Details */}
+        <Route
+          path="/destinations/:destinationId"
+          element={<DestinationDetails />}
+        />
+
         <Route path="/packages" element={<Packages />} />
         <Route path="/login" element={<Login />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/register" element={<Register />} />
+
         <Route path="/admin/users" element={<UsersManagement />} />
         <Route path="/customer/profile" element={<CustomerProfile />} />
         <Route path="/customer/bookings" element={<MyBookings />} />
@@ -56,12 +66,15 @@ function AppLayout() {
         <Route path="/booking-tracking" element={<BookingTracking />} />
         <Route path="/refunds" element={<RefundManagement />} />
         <Route path="/settings" element={<SettingsPage />} />
-         <Route path="/admin/utilities" element={<Utilities />} />
+
+        <Route path="/admin/utilities" element={<Utilities />} />
         <Route path="/admin/reports" element={<ReportsAudit />} />
         <Route path="/admin/activity-logs" element={<ActivityLogs />} />
         <Route path="/admin/staff-activity" element={<StaffActivity />} />
-        <Route path="/admin/staff-activity/:staffId" element={<StaffActivityDetails />} />
-
+        <Route
+          path="/admin/staff-activity/:staffId"
+          element={<StaffActivityDetails />}
+        />
       </Routes>
     </>
   );
