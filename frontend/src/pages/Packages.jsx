@@ -1,5 +1,6 @@
  
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import PackageReviews from "../components/PackageReviews";
 import {
   CalendarDays,
@@ -11,6 +12,8 @@ import {
   Trash2,
   X,
   CalendarPlus,
+  Search,
+  RotateCcw,
 } from "lucide-react";
 import {
   getPackages,
@@ -40,7 +43,18 @@ function formatDateTime(value) {
 }
 
 export default function Packages() {
+  const location = useLocation();
+  const initialFilters = location.state || {};
+
   const [packages, setPackages] = useState([]);
+  const [allSchedules, setAllSchedules] = useState([]);
+  const [destinationSearch, setDestinationSearch] = useState(
+    initialFilters.destination || ""
+  );
+  const [departureDate, setDepartureDate] = useState(
+    initialFilters.travelDate || ""
+  );
+  const [expandedDescriptions, setExpandedDescriptions] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expandedPackage, setExpandedPackage] = useState(null);
@@ -171,21 +185,147 @@ export default function Packages() {
   useEffect(() => {
     loadPackages();
 
-    if (canManage) {
-      getDestinations()
-        .then((data) => {
-          setDestinations(
-            Array.isArray(data) ? data : data?.destinations ?? []
-          );
-        })
-        .catch((err) => {
-          console.error("Failed to load destinations:", err);
+    // Destinations are needed for customer search and staff package forms.
+    getDestinations()
+      .then((data) => {
+        setDestinations(
+          Array.isArray(data) ? data : data?.value ?? data?.destinations ?? []
+        );
+      })
+      .catch((err) => {
+        console.error("Failed to load destinations:", err);
+        if (canManage) {
           setFormError("Could not load destinations for the package form.");
-        });
-    }
+        }
+      });
+
+    // Separate all-schedule data powers filtering; the existing per-package
+    // schedules state still powers expanded schedule details and availability.
+    getSchedules()
+      .then((data) => {
+        setAllSchedules(
+          Array.isArray(data) ? data : data?.schedules ?? data?.value ?? []
+        );
+      })
+      .catch((err) => {
+        console.error("Failed to load schedules for package filters:", err);
+        setAllSchedules([]);
+      });
   }, []);
 
 
+
+  function normalizeSearch(value = "") {
+    return String(value).toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+  }
+
+  function getPackageDestinationIds(item) {
+    const ids = new Set();
+    const addId = (value) => {
+      const id =
+        value && typeof value === "object"
+          ? value.destination_id ?? value.id
+          : value;
+      if (id !== undefined && id !== null && id !== "") ids.add(String(id));
+    };
+
+    if (Array.isArray(item.destination_ids)) item.destination_ids.forEach(addId);
+    if (Array.isArray(item.destinations)) item.destinations.forEach(addId);
+    if (Array.isArray(item.package_destinations)) item.package_destinations.forEach(addId);
+    if (item.destination_id != null) addId(item.destination_id);
+
+    return ids;
+  }
+
+  function getPackageDestinationNames(item) {
+    const names = [];
+    const addName = (value) => {
+      if (typeof value === "string") names.push(value);
+      else if (value && typeof value === "object") {
+        if (value.name) names.push(value.name);
+        if (value.destination_name) names.push(value.destination_name);
+      }
+    };
+
+    if (Array.isArray(item.destinations)) item.destinations.forEach(addName);
+    if (Array.isArray(item.package_destinations)) item.package_destinations.forEach(addName);
+    if (Array.isArray(item.destination_names)) item.destination_names.forEach(addName);
+
+    return names;
+  }
+
+  const normalizedDestinationSearch = normalizeSearch(destinationSearch);
+  const matchingDestinations = destinations.filter((destination) => {
+    if (!normalizedDestinationSearch) return true;
+    return [destination.name, destination.district, destination.division].some(
+      (value) => normalizeSearch(value).includes(normalizedDestinationSearch)
+    );
+  });
+
+  const matchingDestinationIds = new Set(
+    matchingDestinations
+      .map((destination) => destination.destination_id)
+      .filter((id) => id !== undefined && id !== null)
+      .map(String)
+  );
+
+  const matchingDestinationNames = matchingDestinations
+    .map((destination) => normalizeSearch(destination.name))
+    .filter(Boolean);
+
+  const filteredPackages = packages.filter((item) => {
+    if (normalizedDestinationSearch) {
+      const packageDestinationIds = getPackageDestinationIds(item);
+      const packageDestinationNames = getPackageDestinationNames(item).map(normalizeSearch);
+
+      const matchesById = [...packageDestinationIds].some((id) =>
+        matchingDestinationIds.has(id)
+      );
+
+      const matchesByName = packageDestinationNames.some((name) =>
+        matchingDestinationNames.some(
+          (destinationName) =>
+            name &&
+            (name.includes(destinationName) || destinationName.includes(name))
+        )
+      );
+
+      if (!matchesById && !matchesByName) return false;
+    }
+
+    if (departureDate) {
+      const hasDepartureOnDate = allSchedules.some((schedule) => {
+        const departureTime = new Date(schedule.departure_datetime).getTime();
+        return (
+          String(schedule.package_id) === String(item.package_id) &&
+          String(schedule.schedule_status || "").toUpperCase() === "SCHEDULED" &&
+          String(schedule.departure_datetime || "").slice(0, 10) === departureDate &&
+          Number.isFinite(departureTime) &&
+          departureTime > Date.now()
+        );
+      });
+
+      if (!hasDepartureOnDate) return false;
+    }
+
+    return true;
+  });
+
+  function clearFilters() {
+    setDestinationSearch("");
+    setDepartureDate("");
+  }
+
+  async function refreshAllSchedules() {
+    try {
+      const data = await getSchedules();
+      setAllSchedules(
+        Array.isArray(data) ? data : data?.schedules ?? data?.value ?? []
+      );
+    } catch (err) {
+      console.error("Failed to refresh schedules for package filters:", err);
+    }
+  }
 
   function canEditPackage(item) {
     return (
@@ -429,6 +569,7 @@ export default function Packages() {
         ...previous,
         [scheduleFormPackageId]: items,
       }));
+      await refreshAllSchedules();
 
       const results = await Promise.all(
         items.map(async (schedule) => {
@@ -484,6 +625,7 @@ export default function Packages() {
         ...previous,
         [schedule.package_id]: items,
       }));
+      await refreshAllSchedules();
 
       const results = await Promise.all(
         items.map(async (item) => {
@@ -571,34 +713,91 @@ export default function Packages() {
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-12 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <p className="font-bold uppercase tracking-widest text-teal-700">
-          Explore experiences
-        </p>
+        <div className="rounded-3xl bg-gradient-to-r from-teal-900 via-teal-800 to-cyan-800 px-6 py-8 text-white shadow-sm sm:px-8 sm:py-10">
+          <p className="font-bold uppercase tracking-[0.2em] text-teal-200">
+            Explore experiences
+          </p>
 
-         
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
-          <h1 className="text-4xl font-bold text-slate-900">
-            Tour Packages
-          </h1>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-extrabold sm:text-4xl">Tour Packages</h1>
+              <p className="mt-3 max-w-2xl leading-7 text-teal-50/90">
+                Find your next adventure by destination and departure date.
+              </p>
+            </div>
 
-          {canManage && (
-            <button
-              type="button"
-              onClick={openCreateForm}
-              className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-3 font-semibold text-white hover:bg-teal-800"
-            >
-              <Plus size={18} />
-              Add Package
-            </button>
-          )}
+            {canManage && (
+              <button
+                type="button"
+                onClick={openCreateForm}
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-semibold text-teal-900 transition hover:bg-teal-50"
+              >
+                <Plus size={18} />
+                Add Package
+              </button>
+            )}
+          </div>
         </div>
 
+        <section aria-label="Search tour packages" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Search size={19} className="text-teal-700" />
+            <h2 className="font-bold text-slate-900">Find a package</h2>
+          </div>
 
-        <p className="mt-4 text-slate-600">
-          Find your next adventure from our available tour packages.
-        </p>
+          <form onSubmit={(event) => event.preventDefault()} className="grid gap-4 md:grid-cols-[1fr_1fr_auto]">
+            <label className="block text-sm font-semibold text-slate-700">
+              Destination
+              <div className="mt-2 flex items-center gap-3 rounded-xl border border-slate-300 bg-slate-50 px-3 py-3 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-100">
+                <MapPin size={18} className="shrink-0 text-teal-700" />
+                <input
+                  type="text"
+                  value={destinationSearch}
+                  onChange={(event) => setDestinationSearch(event.target.value)}
+                  placeholder="e.g. Bandarban, Cox's Bazar"
+                  className="w-full min-w-0 bg-transparent font-normal outline-none"
+                />
+              </div>
+            </label>
 
-        
+            <label className="block text-sm font-semibold text-slate-700">
+              Departure date
+              <div className="mt-2 flex items-center gap-3 rounded-xl border border-slate-300 bg-slate-50 px-3 py-3 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-100">
+                <CalendarDays size={18} className="shrink-0 text-teal-700" />
+                <input
+                  type="date"
+                  min={new Date().toLocaleDateString("en-CA")}
+                  value={departureDate}
+                  onChange={(event) => setDepartureDate(event.target.value)}
+                  className="w-full min-w-0 bg-transparent font-normal outline-none"
+                />
+              </div>
+            </label>
+
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={clearFilters}
+                disabled={!destinationSearch && !departureDate}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+              >
+                <RotateCcw size={16} />
+                Clear
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
+            <p>
+              Showing <span className="font-semibold text-slate-800">{filteredPackages.length}</span>{" "}
+              of <span className="font-semibold text-slate-800">{packages.length}</span> packages
+            </p>
+            {(destinationSearch.trim() || departureDate) && (
+              <p className="text-teal-800">Filters update automatically as you search.</p>
+            )}
+          </div>
+        </section>
+
         {formMessage && (
           <p className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">
             {formMessage}
@@ -964,9 +1163,15 @@ export default function Packages() {
           </p>
         )}
 
-        {!loading && !error && packages.length > 0 && (
-          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {packages.map((item) => {
+        {!loading && !error && packages.length > 0 && filteredPackages.length === 0 && (
+          <p className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
+            No packages match these filters. Try a different destination or departure date.
+          </p>
+        )}
+
+        {!loading && !error && filteredPackages.length > 0 && (
+          <div className="mt-8 grid items-stretch gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredPackages.map((item) => {
               const packageId = item.package_id;
               const isExpanded = expandedPackage === packageId;
               const packageSchedules = schedules[packageId] || [];
@@ -988,7 +1193,7 @@ export default function Packages() {
               return (
                 <article
                   key={packageId}
-                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                  className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg"
                 >
                   {item.image_url ? (
                     <img
@@ -1006,7 +1211,7 @@ export default function Packages() {
                     </div>
                   )}
 
-                  <div className="p-6">
+                  <div className="flex flex-1 flex-col p-6">
                     <p className="text-xs font-bold uppercase tracking-wider text-teal-700">
                       {item.package_code}
                     </p>
@@ -1015,10 +1220,32 @@ export default function Packages() {
                       {item.package_name}
                     </h2>
 
-                    <p className="mt-3 text-sm leading-6 text-slate-600">
-                      {item.description ||
-                        "Discover a memorable travel experience."}
-                    </p>
+                    <div className="mt-3">
+                      <p
+                        className={`whitespace-pre-line text-sm leading-6 text-slate-600 ${
+                          expandedDescriptions[packageId] ? "" : "line-clamp-3"
+                        }`}
+                      >
+                        {item.description ||
+                          "Discover a memorable travel experience."}
+                      </p>
+
+                      {(item.description || "").trim().length > 160 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedDescriptions((current) => ({
+                              ...current,
+                              [packageId]: !current[packageId],
+                            }))
+                          }
+                          className="mt-2 text-sm font-semibold text-teal-700 hover:text-teal-900"
+                          aria-expanded={Boolean(expandedDescriptions[packageId])}
+                        >
+                          {expandedDescriptions[packageId] ? "See less" : "See more"}
+                        </button>
+                      )}
+                    </div>
 
                     <PackageReviews packageId={packageId} />
 
@@ -1050,7 +1277,7 @@ export default function Packages() {
                     )}
 
 
-                    <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+                    <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-4">
                       <div>
                         <p className="text-xs text-slate-500">
                           Starting from

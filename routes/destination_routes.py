@@ -1,10 +1,11 @@
-﻿ 
+﻿
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 
 from models import Destination
 from extensions import db
 from auth_utils import get_current_user, role_required
+from backend.utils.audit_logger import log_activity
 
 
 destination_bp = Blueprint(
@@ -90,6 +91,21 @@ def create_destination():
         )
 
         db.session.add(destination)
+        db.session.flush()
+
+        # Record destination creation.
+        log_activity(
+            action="DESTINATION_CREATED",
+            table_name="destinations",
+            record_id=destination.destination_id,
+            new_values={
+                "name": destination.name,
+                "division": destination.division,
+                "district": destination.district,
+                "status": destination.status,
+            },
+        )
+
         db.session.commit()
 
         return jsonify({
@@ -133,11 +149,38 @@ def update_destination(destination_id):
         "status"
     ]
 
+    # Capture existing values before applying updates.
+    old_values = {
+        field: (
+            float(getattr(destination, field))
+            if field in ["latitude", "longitude"]
+            and getattr(destination, field) is not None
+            else getattr(destination, field)
+        )
+        for field in allowed_fields
+    }
+
     for field in allowed_fields:
         if field in data:
             setattr(destination, field, data[field])
 
     try:
+        log_activity(
+            action="DESTINATION_UPDATED",
+            table_name="destinations",
+            record_id=destination.destination_id,
+            old_values=old_values,
+            new_values={
+                field: (
+                    float(getattr(destination, field))
+                    if field in ["latitude", "longitude"]
+                    and getattr(destination, field) is not None
+                    else getattr(destination, field)
+                )
+                for field in allowed_fields
+            },
+        )
+
         db.session.commit()
 
         return jsonify({
@@ -145,12 +188,14 @@ def update_destination(destination_id):
             "destination": serialize_destination(destination)
         })
 
-    except Exception:
+    except Exception as e:
         db.session.rollback()
-        return jsonify({
-            "error": "Destination update failed. Check supplied values and database constraints."
-        }), 400
 
+        print("DESTINATION UPDATE ERROR:", repr(e))
+
+        return jsonify({
+            "error": "Destination update failed."
+        }), 400
 
 @destination_bp.route("/<int:destination_id>", methods=["DELETE"])
 @jwt_required()
@@ -165,6 +210,22 @@ def delete_destination(destination_id):
         }), 403
 
     try:
+        # Save destination details before deletion.
+        old_values = {
+            "name": destination.name,
+            "division": destination.division,
+            "district": destination.district,
+            "status": destination.status,
+        }
+
+        # Record destination deletion before removing the record.
+        log_activity(
+            action="DESTINATION_DELETED",
+            table_name="destinations",
+            record_id=destination.destination_id,
+            old_values=old_values,
+        )
+
         db.session.delete(destination)
         db.session.commit()
 

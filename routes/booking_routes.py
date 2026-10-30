@@ -24,6 +24,8 @@ from auth_utils import (
 )
 from tasks.booking_notifications import create_booking_notification
 from tasks.staff_notifications import notify_staff_and_admins
+from backend.utils.audit_logger import log_activity
+
 
 booking_bp = Blueprint(
     "booking",
@@ -204,6 +206,9 @@ def cancel_my_booking(booking_id):
             db.session.flush()
 
         old_status_id = booking.status_id
+        old_status_name = (
+    booking.status.status_name if booking.status else None
+)
         booking.status_id = cancelled_status.status_id
 
         db.session.add(BookingStatusHistory(
@@ -240,6 +245,7 @@ def cancel_my_booking(booking_id):
                 synchronize_session=False,
             )
 
+         
         # Store a refund record only when some money was received.
         # A zero refund is reported separately, not marked as paid back.
         if paid_amount > 0:
@@ -260,17 +266,33 @@ def cancel_my_booking(booking_id):
                 days_before_travel=days_before_travel,
                 policy_reason=policy_reason,
                 refund_status=(
-                 "PENDING" if refund_amount > 0 else "NOT_REQUIRED"
-          ),
+                    "PENDING" if refund_amount > 0 else "NOT_REQUIRED"
+                ),
                 notes=(
                     "Refund amount calculated; staff must process "
                     "any refund due."
                     if refund_amount > 0
-                    else "No refund is due under the cancellation policy."
+                    else "No refund amount is due under the policy."
                 )
             ))
 
+        # Log every successful cancellation, whether paid or unpaid.
+        log_activity(
+            action="BOOKING_CANCELLED",
+            table_name="bookings",
+            record_id=booking.booking_id,
+            old_values={
+                "status": old_status_name
+            },
+            new_values={
+                "status": cancelled_status.status_name,
+                "refund_amount": float(refund_amount),
+                "refund_percentage": float(refund_percentage),
+            },
+        )
+
         db.session.commit()
+
 
         return jsonify({
             "message": (
@@ -702,6 +724,19 @@ def create_booking():
             change_reason="Booking created and marked as pending."
         ))
 
+        log_activity(
+    action="BOOKING_CREATED",
+    table_name="bookings",
+    record_id=booking.booking_id,
+    new_values={
+        "booking_reference": booking.booking_reference,
+        "customer_id": booking.customer_id,
+        "package_id": booking.package_id,
+        "total_amount": float(booking.total_amount),
+        "status": pending_status.status_name,
+    },
+)
+
         db.session.commit()
         db.session.refresh(booking)
 
@@ -1096,9 +1131,26 @@ def update_booking_status(booking_id):
             changed_by=user.user_id,
             change_reason=data.get("change_reason")
         )
+        old_status_name = (
+    booking.status.status_name if booking.status else None
+)
 
         booking.status_id = new_status_id
         db.session.add(history)
+        log_activity(
+    action="BOOKING_STATUS_UPDATED",
+    table_name="bookings",
+    record_id=booking.booking_id,
+    old_values={
+        "status_id": old_status_id,
+        "status": old_status_name,
+    },
+    new_values={
+        "status_id": new_status_id,
+        "status": status.status_name,
+    },
+)
+
         db.session.commit()
 
         return jsonify({

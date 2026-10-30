@@ -1,4 +1,3 @@
-
 import {
   Compass,
   Menu,
@@ -6,33 +5,34 @@ import {
   LogOut,
   Bell,
   CheckCheck,
+  ChevronDown,
+  LayoutDashboard,
+  X,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import {
   getNotifications,
   markNotificationRead,
   getStaffNotifications,
   markStaffNotificationRead,
-  markAllStaffNotificationsRead,
 } from "../services/api";
 
 export default function Navbar() {
   const navigate = useNavigate();
-
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsError, setNotificationsError] = useState("");
   const [markingReadId, setMarkingReadId] = useState(null);
+  const profileRef = useRef(null);
+  const notificationRef = useRef(null);
 
   const token = sessionStorage.getItem("access_token");
-
-
-  
   let user = null;
-
   try {
     user = JSON.parse(sessionStorage.getItem("user") || "null");
   } catch {
@@ -41,606 +41,296 @@ export default function Navbar() {
   }
 
   const isLoggedIn = Boolean(token && user);
-const isCustomer = isLoggedIn && user.role_name === "CUSTOMER";
-
-const isStaffOrAdmin =
-  isLoggedIn &&
-  ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
-
-  const unreadCount = notifications.filter(
-    (notification) => !notification.is_read
-  ).length;
-
-   
-
- useEffect(() => {
-    let cancelled = false;
-
-    async function loadNotifications() {
-      if ((!isCustomer && !isStaffOrAdmin) || !token) {
-        setNotifications([]);
-        return;
-      }
-
-      setNotificationsLoading(true);
-      setNotificationsError("");
-
-      try {
-        const data = isCustomer
-          ? await getNotifications()
-          : await getStaffNotifications();
-
-        if (!cancelled) {
-          setNotifications(Array.isArray(data) ? data : []);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setNotificationsError(
-            error.message || "Failed to load notifications."
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setNotificationsLoading(false);
-        }
-      }
-    }
-
-    loadNotifications();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isCustomer, isStaffOrAdmin, token]);
-
-  function handleLogout() {
-    sessionStorage.removeItem("access_token");
-    sessionStorage.removeItem("user");
-
-    setMenuOpen(false);
-    setNotificationsOpen(false);
-    setNotifications([]);
-
-    navigate("/");
-  }
-    async function handleMarkRead(notification) {
-  if (notification.is_read || markingReadId !== null) {
-    return;
-  }
-
-  const notificationId = notification.notification_id;
-
-  setMarkingReadId(notificationId);
-  setNotificationsError("");
-
-  try {
-    if (isCustomer) {
-      await markNotificationRead(notificationId);
-    } else {
-      await markStaffNotificationRead(notificationId);
-    }
-
-    setNotifications((current) =>
-      current.map((item) =>
-        item.notification_id === notificationId
-          ? {
-              ...item,
-              is_read: true,
-              read_at: new Date().toISOString(),
-            }
-          : item
-      )
-    );
-  } catch (error) {
-    setNotificationsError(
-      error.message || "Could not mark notification as read."
-    );
-  } finally {
-    setMarkingReadId(null);
-  }
-}
-
+  const isCustomer = isLoggedIn && user.role_name === "CUSTOMER";
+  const isHigherAdmin = isLoggedIn && user.role_name === "HIGHER_ADMIN";
+  const isStaff = isLoggedIn && user.role_name === "STAFF";
+  const canReceiveNotifications =
+    isLoggedIn &&
+    ["CUSTOMER", "STAFF", "HIGHER_ADMIN"].includes(user.role_name);
+  const unreadCount = notifications.filter((item) => !item.is_read).length;
   const roleLabel = {
-    HIGHER_ADMIN: "Admin",
+    HIGHER_ADMIN: "Higher Administrator",
     STAFF: "Staff",
     CUSTOMER: "Customer",
   };
 
-  const canManageInvoices =
-    isLoggedIn &&
-    ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
+  useEffect(() => {
+    let cancelled = false;
+    async function loadNotifications() {
+      if (!canReceiveNotifications || !token) {
+        setNotifications([]);
+        setNotificationsLoading(false);
+        return;
+      }
+      setNotificationsLoading(true);
+      setNotificationsError("");
+      try {
+        // Customers use their own notification feed. Staff and Higher Admin
+        // use the existing staff/admin notification feed.
+        const data = isCustomer
+          ? await getNotifications()
+          : await getStaffNotifications();
 
-  const canManagePayments =
-    isLoggedIn &&
-    ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
-    const canManageRefunds =
-  isLoggedIn &&
-  ["HIGHER_ADMIN", "STAFF"].includes(user.role_name);
-
- 
-async function handleNotificationToggle() {
-  const willOpen = !notificationsOpen;
-  setNotificationsOpen(willOpen);
-
-  if (!willOpen || notificationsLoading) {
-    return;
-  }
-
-  setNotificationsError("");
-
-  // Staff/Admin: persist read status in the database.
-  if (isStaffOrAdmin) {
-    const unreadNotifications = notifications.filter(
-      (notification) => !notification.is_read
-    );
-
-    if (unreadNotifications.length === 0) {
-      return;
+        if (!cancelled) setNotifications(Array.isArray(data) ? data : []);
+      } catch (error) {
+        if (!cancelled) setNotificationsError(error.message || "Failed to load notifications.");
+      } finally {
+        if (!cancelled) setNotificationsLoading(false);
+      }
     }
+    loadNotifications();
+    return () => { cancelled = true; };
+  }, [canReceiveNotifications, isCustomer, token]);
 
-    try {
-      await markAllStaffNotificationsRead();
-
-      setNotifications((current) =>
-        current.map((notification) => ({
-          ...notification,
-          is_read: true,
-          read_at:
-            notification.read_at || new Date().toISOString(),
-        }))
-      );
-    } catch (error) {
-      setNotificationsError(
-        error.message || "Could not mark notifications as read."
-      );
+  useEffect(() => {
+    function handleOutsideClick(event) {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setProfileOpen(false);
+      }
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setNotificationsOpen(false);
+      }
     }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
-    return;
+  useEffect(() => {
+    setMenuOpen(false);
+    setProfileOpen(false);
+    setNotificationsOpen(false);
+  }, [location.pathname]);
+
+  function handleLogout() {
+    sessionStorage.removeItem("access_token");
+    sessionStorage.removeItem("user");
+    setMenuOpen(false);
+    setProfileOpen(false);
+    setNotificationsOpen(false);
+    setNotifications([]);
+    navigate("/");
   }
 
-  // Customer: preserve the existing behavior.
-  if (!isCustomer) {
-    return;
-  }
-
-  const unreadNotifications = notifications.filter(
-    (notification) => !notification.is_read
-  );
-
-  for (const notification of unreadNotifications) {
+  async function handleMarkRead(notification) {
+    if (notification.is_read || markingReadId !== null) return;
+    const notificationId = notification.notification_id;
+    setMarkingReadId(notificationId);
+    setNotificationsError("");
     try {
-      await markNotificationRead(notification.notification_id);
+      if (isCustomer) {
+        await markNotificationRead(notificationId);
+      } else {
+        await markStaffNotificationRead(notificationId);
+      }
 
       setNotifications((current) =>
         current.map((item) =>
-          item.notification_id === notification.notification_id
-            ? {
-                ...item,
-                is_read: true,
-                read_at: new Date().toISOString(),
-              }
+          item.notification_id === notificationId
+            ? { ...item, is_read: true, read_at: new Date().toISOString() }
             : item
         )
       );
     } catch (error) {
-      setNotificationsError(
-        error.message || "Could not mark notifications as read."
-      );
+      setNotificationsError(error.message || "Could not mark notification as read.");
+    } finally {
+      setMarkingReadId(null);
     }
   }
-}
 
-
-
-
-  function renderNotificationPanel() {
-    return (
-      <div className="absolute right-0 top-full z-[60] mt-3 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl sm:w-96">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <div>
-            <h3 className="font-semibold text-slate-900">
-              Notifications
-            </h3>
-            <p className="text-xs text-slate-500">
-              {unreadCount} unread
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setNotificationsOpen(false)}
-            className="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
-          >
-            Close
-          </button>
-        </div>
-
-        {notificationsError && (
-          <p
-            role="alert"
-            className="border-b border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
-          >
-            {notificationsError}
-          </p>
-        )}
-
-        {notificationsLoading ? (
-          <p className="px-4 py-6 text-center text-sm text-slate-500">
-            Loading notifications...
-          </p>
-        ) : notifications.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-slate-500">
-            No notifications yet.
-          </p>
-        ) : (
-          <div className="max-h-96 overflow-y-auto">
-            {notifications.map((notification) => (
-              <div
-                key={notification.notification_id}
-                className={`border-b border-slate-100 px-4 py-3 last:border-b-0 ${
-                  notification.is_read ? "bg-white" : "bg-teal-50"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-slate-900">
-                      {notification.title || "Notification"}
-                    </p>
-
-                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-600">
-                      {notification.content || "No additional details."}
-                    </p>
-
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      {(notification.priority || notification.notification_type) && (
-  <span className="rounded-full bg-slate-100 px-2 py-1">
-    {notification.priority || notification.notification_type}
-  </span>
-)}
-
-                      {notification.created_at && (
-                        <span>
-                          {new Date(
-                            notification.created_at
-                          ).toLocaleString()}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                
-{notification.is_read ? (
-  <span
-    title="Read"
-    aria-label="Read"
-    className="shrink-0 rounded-lg p-2 text-teal-600"
-  >
-    <CheckCheck size={18} />
-  </span>
-) : (
-  <button
-    type="button"
-    title="Mark as read"
-    aria-label={`Mark ${notification.title || "notification"} as read`}
-    disabled={markingReadId !== null}
-    onClick={() => handleMarkRead(notification)}
-    className="shrink-0 rounded-lg p-2 text-slate-500 hover:bg-teal-100 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
-  >
-    <CheckCheck size={18} />
-  </button>
-)}
-
-                </div>
-
-                {markingReadId === notification.notification_id && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    Marking as read...
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
+  async function handleNotificationToggle() {
+    const willOpen = !notificationsOpen;
+    setNotificationsOpen(willOpen);
+    // Preserve the existing customer behavior: opening the panel marks their
+    // unread items as read. Staff/Admin items are marked individually.
+    if (!willOpen || !isCustomer || notificationsLoading) return;
+    const unread = notifications.filter((item) => !item.is_read);
+    for (const notification of unread) {
+      try {
+        await markNotificationRead(notification.notification_id);
+        setNotifications((current) =>
+          current.map((item) =>
+            item.notification_id === notification.notification_id
+              ? { ...item, is_read: true, read_at: new Date().toISOString() }
+              : item
+          )
+        );
+      } catch (error) {
+        setNotificationsError(error.message || "Could not mark notifications as read.");
+      }
+    }
   }
-  
 
-  function renderNotificationButton() {
+  function NotificationControl() {
     return (
-      <div className="relative">
+      <div className="relative" ref={notificationRef}>
         <button
           type="button"
-           onClick={handleNotificationToggle}
+          onClick={handleNotificationToggle}
           aria-label={`Notifications, ${unreadCount} unread`}
           aria-expanded={notificationsOpen}
-          className="relative flex items-center gap-2 rounded-full border border-slate-200 p-2.5 text-slate-700 transition hover:bg-slate-100"
+          className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
         >
-          <Bell size={20} />
-
-          <span className="text-sm md:hidden">
-            Notifications
-          </span>
-
+          <Bell size={18} />
           {unreadCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white ring-2 ring-white">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
         </button>
-
-        {notificationsOpen && renderNotificationPanel()}
+        {notificationsOpen && (
+          <div className="absolute right-0 top-full z-[100] mt-3 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-xl sm:w-96">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Notifications</h3>
+                <p className="mt-0.5 text-xs text-slate-500">{unreadCount} unread</p>
+              </div>
+              <button type="button" onClick={() => setNotificationsOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100" aria-label="Close notifications">
+                <X size={17} />
+              </button>
+            </div>
+            {notificationsError && <p role="alert" className="bg-rose-50 px-4 py-2 text-xs text-rose-700">{notificationsError}</p>}
+            {notificationsLoading ? (
+              <p className="px-4 py-8 text-center text-sm text-slate-500">Loading notifications…</p>
+            ) : notifications.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-slate-500">No notifications yet.</p>
+            ) : (
+              <div className="max-h-[min(28rem,65vh)] overflow-y-auto">
+                {notifications.map((item) => (
+                  <div key={item.notification_id} className={`border-b border-slate-100 px-4 py-3 last:border-0 ${item.is_read ? "bg-white" : "bg-teal-50/70"}`}>
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900">{item.title || "Notification"}</p>
+                        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-slate-600">{item.content || "No additional details."}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                          {item.priority && <span className="rounded-full bg-slate-100 px-2 py-0.5">{item.priority}</span>}
+                          {item.created_at && <span>{new Date(item.created_at).toLocaleString()}</span>}
+                        </div>
+                      </div>
+                      {!item.is_read && (
+                        <button type="button" title="Mark as read" aria-label="Mark notification as read" disabled={markingReadId !== null} onClick={() => handleMarkRead(item)} className="rounded-lg p-2 text-teal-700 hover:bg-teal-100 disabled:opacity-50">
+                          <CheckCheck size={17} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
-        {/* Brand */}
-        <Link to="/" className="flex items-center gap-2">
-          <span className="rounded-xl bg-teal-600 p-2 text-white">
-            <Compass size={23} />
+    <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur">
+      <nav className="mx-auto flex min-h-[68px] max-w-[1500px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <Link to="/" className="flex shrink-0 items-center gap-2.5" aria-label="TravelMate home">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-600 text-white shadow-sm shadow-teal-900/15">
+            <Compass size={22} />
           </span>
-
-          <span className="text-xl font-bold tracking-tight text-slate-900">
+          <span className="text-lg font-extrabold tracking-tight text-slate-900 sm:text-xl">
             Travel<span className="text-teal-600">Mate</span>
           </span>
         </Link>
 
-        {/* Desktop public navigation */}
-        <div className="hidden items-center gap-8 md:flex">
-          <Link to="/" className="font-medium text-teal-700">
-            Home
-          </Link>
-
-          <Link
-            to="/destinations"
-            className="text-slate-600 hover:text-teal-700"
-          >
-            Destinations
-          </Link>
-
-          <Link
-            to="/packages"
-            className="text-slate-600 hover:text-teal-700"
-          >
-            Packages
-          </Link>
-
-          <a
-            href="/#about"
-            className="text-slate-600 hover:text-teal-700"
-          >
-            About
-          </a>
+        <div className="hidden items-center gap-5 lg:flex">
+          <Link to="/" className={`text-sm font-semibold transition ${location.pathname === "/" ? "text-teal-700" : "text-slate-600 hover:text-teal-700"}`}>Home</Link>
+          <Link to="/destinations" className={`text-sm font-medium transition ${location.pathname === "/destinations" ? "text-teal-700" : "text-slate-600 hover:text-teal-700"}`}>Destinations</Link>
+          <Link to="/packages" className={`text-sm font-medium transition ${location.pathname === "/packages" ? "text-teal-700" : "text-slate-600 hover:text-teal-700"}`}>Packages</Link>
+          <a href="/#about" className="text-sm font-medium text-slate-600 transition hover:text-teal-700">About</a>
         </div>
 
-        {/* Desktop account navigation */}
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden shrink-0 items-center gap-2.5 md:flex">
           {isLoggedIn ? (
             <>
               {isCustomer && (
                 <>
-                  <Link
-                    to="/customer/profile"
-                    className="text-sm font-medium text-slate-700 hover:text-teal-700"
-                  >
-                    My Profile
-                  </Link>
-
-                  <Link
-                    to="/customer/bookings"
-                    className="text-sm font-medium text-slate-700 hover:text-teal-700"
-                  >
-                    My Bookings
-                  </Link>
-
-                  {renderNotificationButton()}
+                  <Link to="/customer/profile" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">My Profile</Link>
+                  <Link to="/customer/bookings" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">My Bookings</Link>
                 </>
               )}
-              {isStaffOrAdmin && renderNotificationButton()}
-
-              {canManageInvoices && (
-                <Link
-                  to="/invoices"
-                  className="text-sm font-medium text-slate-700 hover:text-teal-700"
-                >
-                  Invoices
-                </Link>
+              {canReceiveNotifications && <NotificationControl />}
+              {/* Operational admin links live in the Admin Dashboard sidebar, not this public navbar. */}
+              {isStaff && (
+                <>
+                  <Link to="/invoices" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">Invoices</Link>
+                  <Link to="/payments" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">Payments</Link>
+                  <Link to="/booking-tracking" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">Booking Tracking</Link>
+                </>
               )}
-
-              {canManagePayments && (
-                <Link
-                  to="/payments"
-                  className="text-sm font-medium text-slate-700 hover:text-teal-700"
+              <div className="relative" ref={profileRef}>
+                <button
+                  type="button"
+                  onClick={() => setProfileOpen((open) => !open)}
+                  aria-expanded={profileOpen}
+                  className="flex max-w-[210px] items-center gap-2 rounded-xl px-2.5 py-2 text-left transition hover:bg-slate-50"
                 >
-                  Payments
-                </Link>
-              )}
-
-              {canManageRefunds && (
-  <Link
-    to="/refunds"
-    className="text-sm font-medium text-slate-700 hover:text-teal-700"
-  >
-    Refund Management
-  </Link>
-)}
-
-              {canManagePayments && (
-                <Link
-                  to="/booking-tracking"
-                  className="text-sm font-medium text-slate-700 hover:text-teal-700"
-                >
-                  Booking Tracking
-                </Link>
-              )}
-
-              <Link
-                to="/dashboard"
-                className="text-right text-sm text-slate-700 hover:text-teal-700"
-              >
-                <span className="block font-semibold">
-                  {user.username}
-                </span>
-
-                <span className="block text-xs text-slate-500">
-                  {roleLabel[user.role_name] || user.role_name}
-                </span>
-              </Link>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 transition hover:bg-slate-100"
-              >
-                <LogOut size={17} />
-                Logout
-              </button>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">
+                    {(user.username || "U").slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block max-w-[125px] truncate text-sm font-bold text-slate-800">
+                      {isHigherAdmin ? "Admin Dashboard" : user.username}
+                    </span>
+                    <span className="block text-xs text-slate-500">{roleLabel[user.role_name] || user.role_name}</span>
+                  </span>
+                  <ChevronDown size={15} className="shrink-0 text-slate-400" />
+                </button>
+                {profileOpen && (
+                  <div className="absolute right-0 top-full z-[90] mt-2 w-72 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                    <div className="bg-slate-50 px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-900 text-base font-bold text-white">
+                          {(user.username || "U").slice(0, 1).toUpperCase()}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-slate-900">{user.username || "User"}</p>
+                          <p className="truncate text-xs text-slate-500">{user.email || "Email not available"}</p>
+                        </div>
+                      </div>
+                      <span className="mt-3 inline-flex rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-800">{roleLabel[user.role_name] || user.role_name}</span>
+                    </div>
+                    <div className="p-2">
+                      {isHigherAdmin && <Link to="/dashboard" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><LayoutDashboard size={17} /> Open Admin Dashboard</Link>}
+                      {isCustomer && <Link to="/customer/profile" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><UserRound size={17} /> My profile</Link>}
+                      <button type="button" onClick={handleLogout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"><LogOut size={17} /> Log out</button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
-            <Link
-              to="/login"
-              className="flex items-center gap-2 rounded-full bg-teal-600 px-5 py-2.5 font-semibold text-white transition hover:bg-teal-700"
-            >
-              <UserRound size={17} />
-              Sign in
+            <Link to="/login" className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-teal-700">
+              <UserRound size={16} /> Sign in
             </Link>
           )}
         </div>
 
-        {/* Mobile menu button */}
-        <button
-          type="button"
-          className="rounded-lg p-2 text-slate-700 md:hidden"
-          aria-label="Toggle menu"
-          aria-expanded={menuOpen}
-          onClick={() => {
-            setMenuOpen((previous) => !previous);
-            setNotificationsOpen(false);
-          }}
-        >
-          <Menu size={25} />
+        <button type="button" className="rounded-xl p-2 text-slate-700 hover:bg-slate-100 md:hidden" aria-label="Toggle menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
+          {menuOpen ? <X size={23} /> : <Menu size={23} />}
         </button>
       </nav>
 
-      {/* Mobile navigation */}
       {menuOpen && (
-        <div className="space-y-4 border-t border-slate-200 bg-white px-5 py-4 md:hidden">
-          <Link
-            className="block text-slate-700"
-            to="/"
-            onClick={() => setMenuOpen(false)}
-          >
-            Home
-          </Link>
-
-          <Link
-            className="block text-slate-700"
-            to="/destinations"
-            onClick={() => setMenuOpen(false)}
-          >
-            Destinations
-          </Link>
-
-          <Link
-            className="block text-slate-700"
-            to="/packages"
-            onClick={() => setMenuOpen(false)}
-          >
-            Packages
-          </Link>
-
+        <div className="space-y-1 border-t border-slate-100 bg-white px-4 py-4 shadow-lg md:hidden">
+          <Link className="block rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50" to="/" onClick={() => setMenuOpen(false)}>Home</Link>
+          <Link className="block rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50" to="/destinations" onClick={() => setMenuOpen(false)}>Destinations</Link>
+          <Link className="block rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50" to="/packages" onClick={() => setMenuOpen(false)}>Packages</Link>
           {isLoggedIn ? (
             <>
-              {isCustomer && (
-                <>
-                  <Link
-                    className="block font-medium text-teal-700"
-                    to="/customer/profile"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    My Profile
-                  </Link>
-
-                  <Link
-                    className="block font-medium text-teal-700"
-                    to="/customer/bookings"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    My Bookings
-                  </Link>
-
-                  {renderNotificationButton()}
-                </>
-              )}
-              {isStaffOrAdmin && renderNotificationButton()}
-
-              {canManageInvoices && (
-                <Link
-                  className="block font-medium text-teal-700"
-                  to="/invoices"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Invoices
-                </Link>
-              )}
-
-              {canManagePayments && (
-                <Link
-                  className="block font-medium text-teal-700"
-                  to="/payments"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Payments
-                </Link>
-              )}
-
-              {canManageRefunds && (
-  <Link
-    to="/refunds"
-    className="text-sm font-medium text-slate-700 hover:text-teal-700"
-  >
-    Refund Management
-  </Link>
-)}
-
-              {canManagePayments && (
-                <Link
-                  className="block font-medium text-teal-700"
-                  to="/booking-tracking"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Booking Tracking
-                </Link>
-              )}
-
-              <Link
-                className="block text-slate-700"
-                to="/dashboard"
-                onClick={() => setMenuOpen(false)}
-              >
-                {user.username} (
-                {roleLabel[user.role_name] || user.role_name})
-              </Link>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="font-semibold text-red-600"
-              >
-                Logout
-              </button>
+              {isCustomer && <><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/customer/profile" onClick={() => setMenuOpen(false)}>My Profile</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/customer/bookings" onClick={() => setMenuOpen(false)}>My Bookings</Link></>}
+              {canReceiveNotifications && <div className="flex justify-start px-3 py-2"><NotificationControl /></div>}
+              {isStaff && <><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/invoices" onClick={() => setMenuOpen(false)}>Invoices</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/payments" onClick={() => setMenuOpen(false)}>Payments</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/booking-tracking" onClick={() => setMenuOpen(false)}>Booking Tracking</Link></>}
+              {isHigherAdmin && <Link className="block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50" to="/dashboard" onClick={() => setMenuOpen(false)}>Admin Dashboard</Link>}
+              <div className="mx-3 my-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-sm font-bold text-slate-900">{user.username}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{user.email || roleLabel[user.role_name] || user.role_name}</p>
+              </div>
+              <button type="button" onClick={handleLogout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50"><LogOut size={17} /> Log out</button>
             </>
           ) : (
-            <Link
-              className="block font-semibold text-teal-700"
-              to="/login"
-              onClick={() => setMenuOpen(false)}
-            >
-              Sign in
-            </Link>
+            <Link className="block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-700" to="/login" onClick={() => setMenuOpen(false)}>Sign in</Link>
           )}
         </div>
       )}

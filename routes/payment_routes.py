@@ -14,6 +14,7 @@ from models import (
 from auth_utils import get_current_user, role_required, is_staff_or_admin
 from zoneinfo import ZoneInfo
 from tasks.staff_notifications import notify_staff_and_admins
+from backend.utils.audit_logger import log_activity
 
 payment_bp = Blueprint("payment", __name__, url_prefix="/api/payments")
 CENT = Decimal("0.01")
@@ -483,6 +484,19 @@ def record_offline_payment():
         db.session.flush()
         update_invoice_status(booking.booking_id, invoice)
         confirm_booking_if_fully_paid(booking, user.user_id)
+        log_activity(
+    action="PAYMENT_RECORDED",
+    table_name="payments",
+    record_id=payment.payment_id,
+    new_values={
+        "booking_id": booking.booking_id,
+        "amount": float(payment.amount),
+        "status": "PAID",
+        "transaction_reference": payment.transaction_reference,
+    },
+)
+ 
+
         db.session.commit()
         return jsonify({"message": "Offline payment recorded", "payment": payment_to_dict(payment)}), 201
     except Exception:
@@ -631,9 +645,18 @@ def update_payment_status(payment_id):
 
         if status_name == "PAID":
             confirm_booking_if_fully_paid(booking, user.user_id)
+            log_activity(
+                action="PAYMENT_STATUS_UPDATED",
+                table_name="payments",
+                record_id=payment.payment_id,
+                old_values={"status": current},
+                new_values={
+                    "status": status_name,
+                    "booking_id": booking.booking_id,
+                },
+            )
 
         db.session.commit()
-
         return jsonify({
             "message": "Payment status updated successfully",
             "payment": payment_to_dict(payment),

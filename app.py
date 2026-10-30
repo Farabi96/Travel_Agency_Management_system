@@ -1,5 +1,5 @@
 ﻿import os
-from flask import Flask
+from flask import Flask,jsonify
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from sqlalchemy import text
@@ -28,6 +28,32 @@ from routes.tour_schedule_routes import tour_schedule_bp
 from routes.upload_routes import upload_bp
 
 app = Flask(__name__)
+
+@app.route("/api/test-audit-log", methods=["POST"])
+def test_audit_log():
+    from models.audit_log import AuditLog
+
+    try:
+        log = AuditLog(
+            action="AUDIT_TEST",
+            table_name="test",
+            new_values={"message": "Audit logging test"},
+        )
+
+        db.session.add(log)
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "log_id": log.log_id,
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        app.logger.exception("Audit test failed")
+        return jsonify({"error": str(e)}), 500
+
+
 app.config.from_object(Config)
 app.config["UPLOAD_FOLDER"] = os.path.join(app.root_path, "uploads")
 app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
