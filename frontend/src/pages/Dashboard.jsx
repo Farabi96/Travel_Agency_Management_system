@@ -52,6 +52,7 @@ const NAV_ITEMS = [
   { label: "Destinations", icon: MapPin, to: "/destinations" },
   { label: "Tour Packages", icon: Package, to: "/packages" },
   { label: "Users & Staff", icon: Users, to: "/admin/users" },
+  { label: "My Profile", icon: Users, to: "/admin/profile" },
   { label: "Bookings", icon: CalendarCheck, to: "/booking-tracking" },
   { label: "Payments", icon: CreditCard, to: "/payments" },
   { label: "Refund Management", icon: Receipt, to: "/refunds" },

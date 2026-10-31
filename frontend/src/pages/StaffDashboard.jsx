@@ -279,14 +279,23 @@ export default function StaffDashboard({ user }) {
                 overview.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="inline-flex items-center justify-center gap-2 self-start rounded-xl bg-white px-4 py-3 text-sm font-semibold text-teal-800 hover:bg-teal-50"
-            >
-              <RefreshCw size={16} />
-              Refresh Dashboard
-            </button>
+             <div className="flex flex-wrap items-center gap-3 self-start">
+  <Link
+    to="/staff/profile"
+    className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/40 bg-white/10 px-4 py-3 text-sm font-semibold text-white hover:bg-white/20"
+  >
+    My Profile
+  </Link>
+
+  <button
+    type="button"
+    onClick={() => window.location.reload()}
+    className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-teal-800 hover:bg-teal-50"
+  >
+    <RefreshCw size={16} />
+    Refresh Dashboard
+  </button>
+</div>
           </div>
         </section>
 

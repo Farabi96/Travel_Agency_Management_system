@@ -102,7 +102,12 @@ function UsersTable({ users }) {
 }
  
 
-function StaffTable({ staff, onStatusChange, updatingUserId }) {
+ function StaffTable({
+  staff,
+  onStatusChange,
+  updatingUserId,
+  onViewDetails,
+}) {
   if (!staff.length) {
     return (
       <p className="py-12 text-center text-slate-500">
@@ -162,7 +167,17 @@ function StaffTable({ staff, onStatusChange, updatingUserId }) {
                     {employee.employment_status}
                   </span>
                 </td>
+              
                 <td className="px-4 py-4">
+                  <button
+  type="button"
+  onClick={() => onViewDetails(employee)}
+  className="rounded-lg border border-teal-200 px-3 py-2 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+>
+  View Details
+</button>
+
+
                   <button
                     onClick={() => onStatusChange(employee)}
                     disabled={updatingUserId === employee.user_id}
@@ -194,6 +209,9 @@ export default function UsersManagement() {
   const token = sessionStorage.getItem("access_token");
   const savedUser = sessionStorage.getItem("user");
   const [updatingUserId, setUpdatingUserId] = useState(null);
+  const [selectedStaff, setSelectedStaff] = useState(null);
+const [showStaffDetails, setShowStaffDetails] = useState(false);
+const [loadingStaffDetails, setLoadingStaffDetails] = useState(false);
 
  const [user] = useState(() => {
   try {
@@ -265,7 +283,38 @@ async function updateStaffStatus(employee) {
   }
 }
 
+async function viewStaffDetails(employee) {
+  setSelectedStaff(null);
+  setShowStaffDetails(true);
+  setLoadingStaffDetails(true);
+  setError("");
 
+  try {
+    const response = await fetch(
+      `${API}/staff/${employee.staff_id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || data.msg || "Unable to load staff details."
+      );
+    }
+
+    setSelectedStaff(data);
+  } catch (err) {
+    setError(err.message || "Unable to load staff details.");
+    setShowStaffDetails(false);
+  } finally {
+    setLoadingStaffDetails(false);
+  }
+}
 
 
 
@@ -819,11 +868,97 @@ const allowedDesignations = [
   staff={filteredStaff}
   onStatusChange={updateStaffStatus}
   updatingUserId={updatingUserId}
+  onViewDetails={viewStaffDetails}
 />
               </div>
             ) : null}
           </section>
         )}
+        {activeTab === "staff" && showStaffDetails && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+      <div className="mb-5 flex items-center justify-between">
+        <h2 className="text-xl font-bold text-slate-900">
+          Staff Details
+        </h2>
+
+        <button
+          type="button"
+          onClick={() => {
+            setShowStaffDetails(false);
+            setSelectedStaff(null);
+          }}
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+          aria-label="Close details"
+        >
+          <X size={22} />
+        </button>
+      </div>
+
+      {loadingStaffDetails ? (
+        <p className="py-8 text-center text-slate-500">
+          Loading staff details...
+        </p>
+      ) : selectedStaff ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {[
+            ["Full Name", [selectedStaff.first_name, selectedStaff.last_name].filter(Boolean).join(" ")],
+            ["Username", selectedStaff.username],
+            ["Email", selectedStaff.email],
+            ["Phone", selectedStaff.phone],
+            ["Employee Code", selectedStaff.employee_code],
+            ["Department", selectedStaff.department],
+            ["Designation", selectedStaff.designation],
+            [
+  "Joining Date",
+  selectedStaff.joining_date
+    ? new Date(selectedStaff.joining_date).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    : "—",
+],
+            ["Employment Status", selectedStaff.employment_status],
+            ["Account Status", selectedStaff.account_status],
+            ["Manager ID", selectedStaff.manager_id],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-lg border border-slate-200 p-3"
+            >
+              <p className="text-xs font-semibold uppercase text-slate-500">
+                {label}
+              </p>
+              <p className="mt-1 break-words font-medium text-slate-900">
+                {value || "—"}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="py-8 text-center text-slate-500">
+          Staff details are unavailable.
+        </p>
+      )}
+
+      <div className="mt-6 flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            setShowStaffDetails(false);
+            setSelectedStaff(null);
+          }}
+          className="rounded-lg bg-slate-100 px-4 py-2.5 font-semibold text-slate-700 hover:bg-slate-200"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+
         {activeTab === "staff" && showEmployeeForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">

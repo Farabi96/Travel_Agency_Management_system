@@ -185,7 +185,7 @@ async function handlePasswordChange(event) {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200";
+    "w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10";
 
   if (loading) {
     return (
@@ -215,6 +215,14 @@ async function handlePasswordChange(event) {
   }
 
 if (profileExists && profile) {
+  const initials = `${profile.first_name || ""} ${profile.last_name || ""}`
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("") || "U";
+
   const details = [
     ["Customer Type", profile.customer_type],
     ["First Name", profile.first_name],
@@ -256,18 +264,26 @@ if (profileExists && profile) {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-10">
-      <div className="mx-auto max-w-2xl rounded-2xl bg-white p-6 shadow-lg sm:p-8">
-        <h1 className="text-2xl font-bold text-slate-900">
-          My Profile
-        </h1>
-
-        <p className="mb-6 mt-2 text-sm text-slate-600">
-          View and manage your customer information.
-        </p>
+    <main className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-50 to-white px-4 py-8 sm:py-12">
+      <div className="mx-auto max-w-5xl">
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-teal-900 px-6 py-8 text-white sm:px-9">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-2xl font-bold tracking-wide shadow-inner">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-200">Customer account</p>
+                <h1 className="mt-1 text-2xl font-bold sm:text-3xl">{`${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "My Profile"}</h1>
+                <p className="mt-2 text-sm text-slate-200">Manage your personal information and account security.</p>
+              </div>
+              <span className="w-fit rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-100">Profile active</span>
+            </div>
+          </div>
+          <div className="p-6 sm:p-9">
 
         {error && (
-          <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          <p role="alert" className="mb-5 rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">
             {error}
           </p>
         )}
@@ -449,18 +465,25 @@ if (profileExists && profile) {
           </form>
         ) : (
           <>
-            <div className="space-y-4">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Personal information</h2>
+                <p className="mt-1 text-sm text-slate-500">Your saved customer details</p>
+              </div>
+              <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">Customer</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
               {details.map(([label, value]) => (
-                <div key={label} className="border-b border-slate-100 pb-3">
-                  <p className="text-sm text-slate-500">{label}</p>
-                  <p className="mt-1 font-medium text-slate-900">
+                <div key={label} className="min-h-[82px] rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                  <p className="mt-2 break-words font-semibold text-slate-900">
                     {value || "Not provided"}
                   </p>
                 </div>
               ))}
             </div>
 
-            <div className="mt-7 flex flex-wrap gap-3">
+            <div className="mt-7 flex flex-wrap gap-3 border-t border-slate-100 pt-6">
               <button
                 onClick={startEditing}
                 className="flex-1 rounded-lg bg-indigo-600 px-4 py-3 font-semibold text-white hover:bg-indigo-700"
@@ -477,16 +500,19 @@ if (profileExists && profile) {
             </div>
           </>
         )}
-      </div>
+          </div>
+        </section>
 
-<div className="mt-10 border-t border-slate-200 pt-6">
-  <h2 className="text-xl font-bold text-slate-900">
+<section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+  <div className="flex items-start gap-3">
+    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700">🔒</div>
+    <div>
+      <h2 className="text-xl font-bold text-slate-900">
     Change Password
-  </h2>
-
-  <p className="mt-2 text-sm text-slate-600">
-    Enter your current password and choose a new password.
-  </p>
+      </h2>
+      <p className="mt-1 text-sm text-slate-600">Update your password to keep your account secure.</p>
+    </div>
+  </div>
 
   <form onSubmit={handlePasswordChange} className="mt-5 space-y-4">
     <div>
@@ -580,9 +606,8 @@ if (profileExists && profile) {
       {passwordLoading ? "Changing Password..." : "Change Password"}
     </button>
   </form>
-</div>
-
-
+</section>
+      </div>
     </main>
   );
 }
@@ -591,14 +616,13 @@ if (profileExists && profile) {
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10">
-      <div className="mx-auto max-w-2xl rounded-2xl bg-white p-6 shadow-lg sm:p-8">
-        <h1 className="text-2xl font-bold text-slate-900">
-          Complete Your Profile
-        </h1>
-
-        <p className="mb-6 mt-2 text-sm text-slate-600">
-          Please provide your details before continuing.
-        </p>
+      <div className="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="bg-gradient-to-r from-slate-900 to-teal-800 px-6 py-7 text-white sm:px-9">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-200">Welcome to TravelMate</p>
+          <h1 className="mt-2 text-2xl font-bold sm:text-3xl">Complete Your Profile</h1>
+          <p className="mt-2 text-sm text-slate-200">Add your details to continue with your travel plans.</p>
+        </div>
+        <div className="p-6 sm:p-9">
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
@@ -769,6 +793,7 @@ if (profileExists && profile) {
             {saving ? "Saving Profile..." : "Save Profile"}
           </button>
         </form>
+        </div>
       </div>
     </main>
   );

@@ -382,6 +382,10 @@ export async function createInvoice(invoiceData) {
 export async function getPaymentOverview() {
   return authenticatedRequest("/payments/overview");
 }
+// Get only bookings with outstanding balance
+export async function getOutstandingBookings() {
+  return authenticatedRequest("/payments/outstanding-bookings");
+}
 
 export async function updatePaymentStatus(paymentId, statusName) {
   return authenticatedRequest(
@@ -517,5 +521,17 @@ export async function getTravelCalendar() {
 export async function markAllStaffNotificationsRead() {
   return authenticatedRequest("/staff-notifications/read-all", {
     method: "PUT",
+  });
+}
+
+
+export async function getOwnProfile() {
+  return authenticatedRequest("/auth/profile");
+}
+
+export async function updateOwnProfile(profileData) {
+  return authenticatedRequest("/auth/profile", {
+    method: "PUT",
+    body: JSON.stringify(profileData),
   });
 }

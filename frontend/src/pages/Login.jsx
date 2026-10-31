@@ -35,16 +35,16 @@ async function handleSubmit(event) {
     sessionStorage.setItem("user", JSON.stringify(currentUser));
 
     if (currentUser.role_name === "CUSTOMER") {
-      const profile = await getOwnCustomerProfile();
+  const profile = await getOwnCustomerProfile();
 
-      if (profile === null) {
-        navigate("/customer/profile");
-      } else {
-        navigate("/dashboard");
-      }
-    } else {
-      navigate("/dashboard");
-    }
+  if (profile === null) {
+    navigate("/customer/profile");
+  } else {
+    navigate("/");
+  }
+} else {
+  navigate("/dashboard");
+}
   } catch (err) {
     setError(err.message || "Unable to log in. Please try again.");
   } finally {

@@ -10,7 +10,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from extensions import db
 
-from models import User, Role
+from models import User, Role, Staff
 
 
 auth_bp = Blueprint(
@@ -260,3 +260,112 @@ def change_password():
     return jsonify({
         "message": "Password changed successfully"
     })
+
+
+# ---------------------------------------------------------
+# CURRENT USER PROFILE
+# ---------------------------------------------------------
+
+@auth_bp.route("/profile", methods=["GET"])
+@jwt_required()
+def get_own_profile():
+    user_id = get_jwt_identity()
+    user = User.query.get(int(user_id))
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    role_name = user.role.role_name if user.role else None
+    if role_name not in ("HIGHER_ADMIN", "STAFF"):
+        return jsonify({"error": "This profile endpoint is only available to Admin and Staff"}), 403
+
+    response = {
+        "user_id": user.user_id,
+        "username": user.username,
+        "email": user.email,
+        "role_name": role_name,
+        "account_status": user.account_status,
+    }
+
+    if role_name == "STAFF":
+        staff = Staff.query.filter_by(user_id=user.user_id).first()
+        if not staff:
+            return jsonify({"error": "Staff profile not found"}), 404
+        response["staff"] = {
+            "staff_id": staff.staff_id,
+            "first_name": staff.first_name,
+            "last_name": staff.last_name,
+            "employee_code": staff.employee_code,
+            "phone": staff.phone,
+            "department": staff.department,
+            "designation": staff.designation,
+            "joining_date": staff.joining_date.isoformat() if staff.joining_date else None,
+            "employment_status": staff.employment_status,
+        }
+
+    return jsonify(response)
+
+
+@auth_bp.route("/profile", methods=["PUT"])
+@jwt_required()
+def update_own_profile():
+    user_id = get_jwt_identity()
+    user = User.query.get(int(user_id))
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    role_name = user.role.role_name if user.role else None
+    if role_name not in ("HIGHER_ADMIN", "STAFF"):
+        return jsonify({"error": "This profile endpoint is only available to Admin and Staff"}), 403
+
+    data = request.get_json()
+    if not isinstance(data, dict) or not data:
+        return jsonify({"error": "Request body is required"}), 400
+
+    allowed_fields = {"email"}
+    if role_name == "STAFF":
+        allowed_fields.add("phone")
+    if set(data.keys()) - allowed_fields:
+        return jsonify({
+            "error": "Only email" + (" and phone" if role_name == "STAFF" else "") + " can be updated"
+        }), 400
+
+    if "email" in data:
+        email = data.get("email")
+        if not isinstance(email, str):
+            return jsonify({"error": "A valid email address is required"}), 400
+        email = email.strip().lower()
+        if not email or len(email) > 150 or "@" not in email:
+            return jsonify({"error": "Please provide a valid email address"}), 400
+
+        existing_email = User.query.filter(
+            User.email == email,
+            User.user_id != user.user_id
+        ).first()
+        if existing_email:
+            return jsonify({"error": "Email is already registered"}), 409
+        user.email = email
+
+    if "phone" in data:
+        phone = data.get("phone")
+        if not isinstance(phone, str):
+            return jsonify({"error": "A valid phone number is required"}), 400
+        phone = phone.strip()
+        if not phone or len(phone) > 30:
+            return jsonify({"error": "Phone number must be between 1 and 30 characters"}), 400
+
+        staff = Staff.query.filter_by(user_id=user.user_id).first()
+        if not staff:
+            return jsonify({"error": "Staff profile not found"}), 404
+        staff.phone = phone
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Profile could not be updated"}), 500
+
+    response = {"message": "Profile updated successfully", "email": user.email}
+    if role_name == "STAFF":
+        staff = Staff.query.filter_by(user_id=user.user_id).first()
+        response["phone"] = staff.phone if staff else None
+    return jsonify(response)

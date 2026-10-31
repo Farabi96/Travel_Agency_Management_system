@@ -239,17 +239,35 @@ export default function Navbar() {
           <Link to="/destinations" className={`text-sm font-medium transition ${location.pathname === "/destinations" ? "text-teal-700" : "text-slate-600 hover:text-teal-700"}`}>Destinations</Link>
           <Link to="/packages" className={`text-sm font-medium transition ${location.pathname === "/packages" ? "text-teal-700" : "text-slate-600 hover:text-teal-700"}`}>Packages</Link>
           <a href="/#about" className="text-sm font-medium text-slate-600 transition hover:text-teal-700">About</a>
+          {isStaff && (
+  <Link
+    to="/dashboard"
+    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-semibold transition ${
+      location.pathname === "/dashboard"
+        ? "bg-teal-50 text-teal-700"
+        : "text-slate-600 hover:bg-slate-50 hover:text-teal-700"
+    }`}
+  >
+    <LayoutDashboard size={16} />
+    Dashboard
+  </Link>
+)}
         </div>
+
 
         <div className="hidden shrink-0 items-center gap-2.5 md:flex">
           {isLoggedIn ? (
             <>
               {isCustomer && (
                 <>
+                  <Link to="/dashboard" className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-semibold transition ${location.pathname === "/dashboard" ? "bg-teal-50 text-teal-700" : "text-slate-600 hover:bg-slate-50 hover:text-teal-700"}`}><LayoutDashboard size={16} /> Dashboard</Link>
                   <Link to="/customer/profile" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">My Profile</Link>
                   <Link to="/customer/bookings" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">My Bookings</Link>
                 </>
               )}
+             
+
+
               {canReceiveNotifications && <NotificationControl />}
               {/* Operational admin links live in the Admin Dashboard sidebar, not this public navbar. */}
               {isStaff && (
@@ -319,7 +337,16 @@ export default function Navbar() {
           <Link className="block rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50" to="/packages" onClick={() => setMenuOpen(false)}>Packages</Link>
           {isLoggedIn ? (
             <>
-              {isCustomer && <><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/customer/profile" onClick={() => setMenuOpen(false)}>My Profile</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/customer/bookings" onClick={() => setMenuOpen(false)}>My Bookings</Link></>}
+              {isCustomer && <><Link className="block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50" to="/dashboard" onClick={() => setMenuOpen(false)}>Dashboard</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/customer/profile" onClick={() => setMenuOpen(false)}>My Profile</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/customer/bookings" onClick={() => setMenuOpen(false)}>My Bookings</Link></>}
+              {isStaff && (
+  <Link
+    className="block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50"
+    to="/dashboard"
+    onClick={() => setMenuOpen(false)}
+  >
+    Dashboard
+  </Link>
+)}
               {canReceiveNotifications && <div className="flex justify-start px-3 py-2"><NotificationControl /></div>}
               {isStaff && <><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/invoices" onClick={() => setMenuOpen(false)}>Invoices</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/payments" onClick={() => setMenuOpen(false)}>Payments</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/booking-tracking" onClick={() => setMenuOpen(false)}>Booking Tracking</Link></>}
               {isHigherAdmin && <Link className="block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50" to="/dashboard" onClick={() => setMenuOpen(false)}>Admin Dashboard</Link>}

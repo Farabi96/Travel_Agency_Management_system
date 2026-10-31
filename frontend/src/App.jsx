@@ -11,6 +11,8 @@ import Dashboard from "./pages/Dashboard";
 import Register from "./pages/Register";
 import UsersManagement from "./pages/UsersManagement";
 import CustomerProfile from "./pages/CustomerProfile";
+import AdminProfile from "./pages/AdminProfile";
+import StaffProfile from "./pages/StaffProfile";
 import MyBookings from "./pages/MyBookings";
 import Invoices from "./pages/Invoices";
 import PaymentManagement from "./pages/PaymentManagement";
@@ -60,6 +62,8 @@ function AppLayout() {
 
         <Route path="/admin/users" element={<UsersManagement />} />
         <Route path="/customer/profile" element={<CustomerProfile />} />
+        <Route path="/admin/profile" element={<AdminProfile />} />
+        <Route path="/staff/profile" element={<StaffProfile />} />
         <Route path="/customer/bookings" element={<MyBookings />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payments" element={<PaymentManagement />} />
