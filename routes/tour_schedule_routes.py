@@ -119,9 +119,10 @@ def create_schedule():
             "error": "return_datetime must be later than departure_datetime"
         }), 400
 
-    package, error = get_manageable_package(package_id, user)
-    if error:
-        return error
+    package = db.session.get(TourPackage, package_id)
+
+    if not package:
+       return jsonify({"error": "Package not found"}), 404
 
     schedule = TourSchedule(
         package_id=package.package_id,

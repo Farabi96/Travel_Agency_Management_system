@@ -496,7 +496,9 @@ export default function Packages() {
     }
   }
 
-  
+  function canAddSchedule() {
+  return canManage;
+}
   function canManageSchedule(item) {
     return canManage && canEditPackage(item);
   }
@@ -1296,7 +1298,7 @@ export default function Packages() {
 
 
                     
-                    {canManageSchedule(item) && (
+                    {canAddSchedule() && (
                       <button
                         type="button"
                         onClick={() => openScheduleForm(item)}
