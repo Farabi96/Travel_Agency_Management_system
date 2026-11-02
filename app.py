@@ -130,23 +130,5 @@ def run_completion_job(flask_app):
         expire_unpaid_bookings()
 
 
-
-if __name__ == "__main__":
-    from apscheduler.schedulers.background import BackgroundScheduler
-
-    scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
-    scheduler.add_job(
-        func=lambda: run_completion_job(app),
-        trigger="interval",
-        minutes=1,
-        id="complete_returned_journeys",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.start()
-
-    try:
-        app.run(debug=True, use_reloader=False)
-    finally:
-        scheduler.shutdown(wait=False)
+    if __name__ == "__main__":
+     app.run(debug=True, use_reloader=False) 
