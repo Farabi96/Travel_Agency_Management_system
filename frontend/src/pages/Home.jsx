@@ -715,6 +715,72 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Contact Information */}
+<div className="mx-auto mt-10 max-w-2xl rounded-2xl border border-slate-200 bg-slate-50 px-6 py-8 text-center">
+  <h3 className="text-xl font-bold text-slate-900">
+    Contact Us
+  </h3>
+
+  <p className="mt-2 text-sm text-slate-500">
+    Have questions about a tour or booking? Get in touch with us.
+  </p>
+
+  {/* Email & Phone */}
+  <div className="mt-5 flex flex-col items-center justify-center gap-3 text-sm text-slate-700 sm:flex-row sm:gap-8">
+    <a
+      href="mailto:travelmate@gmail.com"
+      className="transition hover:text-teal-700"
+    >
+      <span className="font-semibold">Email:</span>{" "}
+      travelmate@gmail.com
+    </a>
+
+    <a
+      href="tel:+8801700000000"
+      className="transition hover:text-teal-700"
+    >
+      <span className="font-semibold">WhatsApp:</span>{" "}
+      +8801700000000
+    </a>
+  </div>
+
+  {/* Social Media */}
+  <div className="mt-6">
+    <p className="mb-3 text-sm font-semibold text-slate-700">
+      Follow Us
+    </p>
+
+    <div className="flex items-center justify-center gap-5">
+      <a
+        href="https://www.facebook.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium text-slate-600 transition hover:text-blue-600"
+      >
+        Facebook
+      </a>
+
+      <a
+        href="https://www.instagram.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium text-slate-600 transition hover:text-pink-600"
+      >
+        Instagram
+      </a>
+
+      <a
+        href="https://www.youtube.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium text-slate-600 transition hover:text-red-600"
+      >
+        YouTube
+      </a>
+    </div>
+  </div>
+</div>
+
       {/* About */}
       <section id="about" className="scroll-mt-24 py-20">
         <div className="mx-auto max-w-4xl px-5 text-center">
@@ -732,6 +798,8 @@ export default function Home() {
             travelers plan and manage their journeys more easily.
           </p>
         </div>
+
+      
       </section>
 
       {/* Footer */}

@@ -72,7 +72,6 @@ export default function Packages() {
     sessionStorage.getItem("access_token") &&
       ["STAFF", "HIGHER_ADMIN"].includes(role)
   );
-
   const [destinations, setDestinations] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -118,6 +117,8 @@ export default function Packages() {
   const [bookingSaving, setBookingSaving] = useState(false);
   const [bookingError, setBookingError] = useState("");
   const [bookingMessage, setBookingMessage] = useState("");
+  const [bookedScheduleIds, setBookedScheduleIds] = useState([]);
+  const [bookingSuccessBySchedule, setBookingSuccessBySchedule] = useState({});
 
   async function submitBooking(packageItem, schedule) {
     if (role !== "CUSTOMER" || !sessionStorage.getItem("access_token")) {
@@ -136,8 +137,24 @@ export default function Packages() {
         special_request: bookingSpecialRequest.trim(),
       });
       setBookingMessage(
-        `Booking created! Reference: ${result.booking_reference}. Total: ৳${Number(result.total_amount).toLocaleString("en-BD")}. Status: ${result.status_name || "Pending"}.`
-      );
+  `Booking Successful! Reference: ${result.booking_reference}. Total: ৳${Number(result.total_amount).toLocaleString("en-BD")}. Status: ${result.status_name || "Pending"}.
+
+Please pay within 45 minutes and confirm your booking.
+bKash/Nagad: 01798900909`
+);
+
+setBookedScheduleIds((prev) =>
+  prev.includes(schedule.schedule_id)
+    ? prev
+    : [...prev, schedule.schedule_id]
+);
+
+setBookingSuccessBySchedule((prev) => ({
+  ...prev,
+  [schedule.schedule_id]: `Booking Successful! Reference: ${result.booking_reference}. Total: ৳${Number(result.total_amount).toLocaleString("en-BD")}. Status: ${result.status_name || "Pending"}. Please pay within 45 minutes and confirm your booking. bKash/Nagad: 01798900909`,
+}));
+
+
       setBookingTravelers("1");
       setBookingSpecialRequest("");
     } catch (err) {
@@ -1467,7 +1484,7 @@ export default function Packages() {
                                   </div>
                                 )}
 
-                                {!canManage && (
+                               {!canManage && !bookedScheduleIds.includes(schedule.schedule_id) && (
                                   <button
                                     type="button"
                                     disabled={!canBook}
@@ -1490,8 +1507,9 @@ export default function Packages() {
                                   </button>
                                 )}
 
-                                {bookingTarget?.schedule.schedule_id === schedule.schedule_id && (
-                                  <form
+                                {bookingTarget?.schedule.schedule_id === schedule.schedule_id &&
+  !bookedScheduleIds.includes(schedule.schedule_id) && (
+  <form
                                     className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4"
                                     onSubmit={(event) => {
                                       event.preventDefault();
@@ -1526,7 +1544,7 @@ export default function Packages() {
                                       />
                                     </label>
                                     {bookingError && <p className="text-sm text-red-700">{bookingError}</p>}
-                                    {bookingMessage && <p className="text-sm text-green-700">{bookingMessage}</p>}
+                                   
                                     <div className="flex gap-2">
                                       <button type="submit" disabled={bookingSaving} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                                         {bookingSaving ? "Creating booking..." : "Confirm Booking"}
@@ -1535,9 +1553,15 @@ export default function Packages() {
                                         Cancel
                                       </button>
                                     </div>
-                                  </form>
-                                )}
-                              </div>
+                                   </form>
+)}
+
+{bookedScheduleIds.includes(schedule.schedule_id) && bookingMessage && (
+  <p className="mt-4 whitespace-pre-line text-sm font-medium text-green-700">
+    {bookingMessage}
+  </p>
+)}
+</div>
                             );
                           })}
                         </div>

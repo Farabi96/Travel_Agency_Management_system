@@ -118,8 +118,7 @@ def roles():
         for role in roles
     )
 
-# Start the scheduled task only in the serving process, not Flask's debug reloader
-
+ # Run scheduled booking tasks inside Flask's application context
 def run_completion_job(flask_app):
     """Run scheduled booking jobs inside Flask's application context."""
     from tasks.booking_completion import complete_returned_journeys
@@ -130,5 +129,5 @@ def run_completion_job(flask_app):
         expire_unpaid_bookings()
 
 
-    if __name__ == "__main__":
-     app.run(debug=True, use_reloader=False) 
+if __name__ == "__main__":
+    app.run(debug=True, use_reloader=False)

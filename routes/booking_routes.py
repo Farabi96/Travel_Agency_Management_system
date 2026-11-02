@@ -711,7 +711,11 @@ def create_booking():
                 f"Payment deadline: {booking.payment_deadline.strftime('%d %b %Y, %I:%M %p')} "
                 "Bangladesh time. If payment is not submitted before the deadline, "
                 "your booking may be cancelled automatically."
+                 "\n\nPlease pay within 45 minutes and confirm your booking."
+                 "\nbKash/Nagad: 01798900909"
             ),
+
+            
         )
 
 
