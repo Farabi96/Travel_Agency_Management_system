@@ -8,6 +8,7 @@ from extensions import db
 from models import TourPackage, TourSchedule, Booking
 from auth_utils import get_current_user, role_required
 from routes.tour_package_routes import package_access_allowed
+from backend.utils.audit_logger import log_activity
 
 
 tour_schedule_bp = Blueprint(
@@ -134,6 +135,21 @@ def create_schedule():
 
     try:
         db.session.add(schedule)
+        db.session.flush()
+
+        log_activity(
+            action="CREATE",
+            table_name="tour_schedules",
+            record_id=schedule.schedule_id,
+            new_values={
+                "package_id": schedule.package_id,
+                "departure_datetime": schedule.departure_datetime.isoformat(),
+                "return_datetime": schedule.return_datetime.isoformat(),
+                "max_capacity": schedule.max_capacity,
+                "schedule_status": schedule.schedule_status,
+            },
+        )
+
         db.session.commit()
         return jsonify(serialize_schedule(schedule)), 201
     except Exception:
@@ -188,7 +204,7 @@ def update_schedule(schedule_id):
             return jsonify({"error": "Invalid schedule_status"}), 400
 
     # Do not reduce capacity below the number of travelers already booked.
-        booked_result = db.session.query(
+    booked_result = db.session.query(
         db.func.coalesce(
             db.func.sum(Booking.number_of_travelers), 0
         )
@@ -202,12 +218,31 @@ def update_schedule(schedule_id):
             "error": "Capacity cannot be lower than already booked travelers"
         }), 400
 
+    old_values = {
+        "departure_datetime": schedule.departure_datetime.isoformat(),
+        "return_datetime": schedule.return_datetime.isoformat(),
+        "max_capacity": schedule.max_capacity,
+        "schedule_status": schedule.schedule_status,
+    }
+
     schedule.departure_datetime = departure
     schedule.return_datetime = return_time
     schedule.max_capacity = max_capacity
     schedule.schedule_status = status
 
     try:
+        log_activity(
+            action="UPDATE",
+            table_name="tour_schedules",
+            record_id=schedule.schedule_id,
+            old_values=old_values,
+            new_values={
+                "departure_datetime": schedule.departure_datetime.isoformat(),
+                "return_datetime": schedule.return_datetime.isoformat(),
+                "max_capacity": schedule.max_capacity,
+                "schedule_status": schedule.schedule_status,
+            },
+        )
         db.session.commit()
         return jsonify(serialize_schedule(schedule)), 200
     except Exception:
@@ -230,9 +265,17 @@ def cancel_schedule(schedule_id):
         return error
 
     # Preserve bookings: cancel the schedule instead of deleting its record.
+    old_status = schedule.schedule_status
     schedule.schedule_status = "CANCELLED"
 
     try:
+        log_activity(
+            action="CANCEL",
+            table_name="tour_schedules",
+            record_id=schedule.schedule_id,
+            old_values={"schedule_status": old_status},
+            new_values={"schedule_status": schedule.schedule_status},
+        )
         db.session.commit()
         return jsonify({
             "message": "Schedule cancelled successfully",

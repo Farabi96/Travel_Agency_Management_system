@@ -1030,128 +1030,7 @@ export default function Packages() {
         )}
 
 
-        {scheduleFormPackageId !== null && (
-          <form
-            onSubmit={handleScheduleSubmit}
-            className="mt-6 space-y-5 rounded-2xl border border-teal-200 bg-white p-6 shadow-sm"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">
-                  {editingScheduleId !== null
-                    ? "Edit Departure Schedule"
-                    : "Add Departure Schedule"}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Set departure and return dates, plus the number of seats for this trip.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setScheduleFormPackageId(null);
-                  setEditingScheduleId(null);
-                  setScheduleForm({ ...emptyScheduleForm });
-                  setScheduleFormError("");
-                  setScheduleFormMessage("");
-                }}
-                aria-label="Close schedule form"
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {scheduleFormError && (
-              <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-                {scheduleFormError}
-              </p>
-            )}
-            {scheduleFormMessage && (
-              <p className="rounded-lg bg-green-50 p-3 text-sm text-green-800">
-                {scheduleFormMessage}
-              </p>
-            )}
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <label className="text-sm font-medium text-slate-700">
-                Departure date and time *
-                <input
-                  required
-                  type="datetime-local"
-                  value={scheduleForm.departure_datetime}
-                  onChange={(event) =>
-                    setScheduleForm((current) => ({
-                      ...current,
-                      departure_datetime: event.target.value,
-                    }))
-                  }
-                  className="mt-1 w-full rounded-lg border border-slate-300 p-3"
-                />
-              </label>
-              <label className="text-sm font-medium text-slate-700">
-                Return date and time *
-                <input
-                  required
-                  type="datetime-local"
-                  min={scheduleForm.departure_datetime || undefined}
-                  value={scheduleForm.return_datetime}
-                  onChange={(event) =>
-                    setScheduleForm((current) => ({
-                      ...current,
-                      return_datetime: event.target.value,
-                    }))
-                  }
-                  className="mt-1 w-full rounded-lg border border-slate-300 p-3"
-                />
-              </label>
-              <label className="text-sm font-medium text-slate-700">
-                Seat capacity *
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={scheduleForm.max_capacity}
-                  onChange={(event) =>
-                    setScheduleForm((current) => ({
-                      ...current,
-                      max_capacity: event.target.value,
-                    }))
-                  }
-                  className="mt-1 w-full rounded-lg border border-slate-300 p-3"
-                />
-              </label>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="submit"
-                disabled={scheduleSaving}
-                className="rounded-lg bg-teal-700 px-5 py-3 font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
-              >
-                {scheduleSaving
-                  ? "Saving..."
-                  : editingScheduleId !== null
-                    ? "Save Schedule Changes"
-                    : "Create Schedule"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setScheduleFormPackageId(null);
-                  setEditingScheduleId(null);
-                  setScheduleForm({ ...emptyScheduleForm });
-                  setScheduleFormError("");
-                  setScheduleFormMessage("");
-                }}
-                className="rounded-lg border border-slate-300 px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
+         
 
         {loading && (
           <p className="mt-8 text-slate-600">Loading packages...</p>
@@ -1308,6 +1187,144 @@ export default function Packages() {
                         Add Departure Schedule
                       </button>
                     )}
+
+                    {scheduleFormPackageId === packageId && (
+                      <form
+                        onSubmit={handleScheduleSubmit}
+                        className="mt-4 overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-[0_8px_24px_rgba(15,118,110,0.08)]"
+                      >
+                        <div className="flex items-start justify-between gap-3 border-b border-teal-100 bg-gradient-to-r from-teal-50 via-white to-cyan-50 px-4 py-4">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-700 text-white shadow-sm">
+                              <CalendarPlus size={19} />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-teal-700">
+                                {editingScheduleId !== null ? "Update trip" : "New trip schedule"}
+                              </p>
+                              <h2 className="mt-0.5 text-base font-bold leading-5 text-slate-900">
+                                {editingScheduleId !== null
+                                  ? "Edit Departure Schedule"
+                                  : "Add Departure Schedule"}
+                              </h2>
+                              <p className="mt-1 truncate text-xs font-medium text-slate-500" title={item.package_name}>
+                                {item.package_name}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setScheduleFormPackageId(null);
+                              setEditingScheduleId(null);
+                              setScheduleForm({ ...emptyScheduleForm });
+                              setScheduleFormError("");
+                              setScheduleFormMessage("");
+                            }}
+                            aria-label="Close schedule form"
+                            className="rounded-lg p-2 text-slate-400 transition hover:bg-white hover:text-slate-700"
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-4 p-4">
+                          <p className="text-xs leading-5 text-slate-500">
+                            Choose the trip dates and set how many seats are available.
+                          </p>
+
+                          {scheduleFormError && (
+                            <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+                              {scheduleFormError}
+                            </p>
+                          )}
+                          {scheduleFormMessage && (
+                            <p className="rounded-lg border border-green-100 bg-green-50 px-3 py-2.5 text-sm text-green-800">
+                              {scheduleFormMessage}
+                            </p>
+                          )}
+
+                          <div className="space-y-3">
+                            <label className="block text-xs font-semibold text-slate-700">
+                              Departure date & time <span className="text-rose-500">*</span>
+                              <input
+                                required
+                                type="datetime-local"
+                                value={scheduleForm.departure_datetime}
+                                onChange={(event) =>
+                                  setScheduleForm((current) => ({
+                                    ...current,
+                                    departure_datetime: event.target.value,
+                                  }))
+                                }
+                                className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-800 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100"
+                              />
+                            </label>
+                            <label className="block text-xs font-semibold text-slate-700">
+                              Return date & time <span className="text-rose-500">*</span>
+                              <input
+                                required
+                                type="datetime-local"
+                                min={scheduleForm.departure_datetime || undefined}
+                                value={scheduleForm.return_datetime}
+                                onChange={(event) =>
+                                  setScheduleForm((current) => ({
+                                    ...current,
+                                    return_datetime: event.target.value,
+                                  }))
+                                }
+                                className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-800 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100"
+                              />
+                            </label>
+                            <label className="block text-xs font-semibold text-slate-700">
+                              Seat capacity <span className="text-rose-500">*</span>
+                              <input
+                                required
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={scheduleForm.max_capacity}
+                                onChange={(event) =>
+                                  setScheduleForm((current) => ({
+                                    ...current,
+                                    max_capacity: event.target.value,
+                                  }))
+                                }
+                                className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-800 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-2 focus:ring-teal-100"
+                              />
+                            </label>
+                          </div>
+
+                          <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setScheduleFormPackageId(null);
+                                setEditingScheduleId(null);
+                                setScheduleForm({ ...emptyScheduleForm });
+                                setScheduleFormError("");
+                                setScheduleFormMessage("");
+                              }}
+                              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={scheduleSaving}
+                              className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {scheduleSaving
+                                ? "Saving..."
+                                : editingScheduleId !== null
+                                  ? "Save Changes"
+                                  : "Create Schedule"}
+                            </button>
+                          </div>
+                        </div>
+                      </form>
+                    )}
+
 
                     <button
                       type="button"
