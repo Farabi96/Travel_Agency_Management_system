@@ -6,3 +6,5 @@ routes/*.py.bak
 
 # Uploaded user images
 **/uploads/
+
+*.dump
