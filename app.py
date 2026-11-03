@@ -57,17 +57,24 @@ def test_audit_log():
 app.config.from_object(Config)
 app.config["UPLOAD_FOLDER"] = os.path.join(app.root_path, "uploads")
 app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
+frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+if frontend_url:
+    allowed_origins.append(frontend_url)
+
 CORS(
     app,
     resources={
         r"/api/*": {
-            "origins": [
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-                os.getenv("FRONTEND_URL", ""),
-            ]
+            "origins": allowed_origins
         }
     },
+    supports_credentials=True,
 )
 
 db.init_app(app)
