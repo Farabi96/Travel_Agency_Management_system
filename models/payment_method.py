@@ -30,7 +30,8 @@ class PaymentMethod(db.Model):
     status = db.Column(
         db.Enum(
             "ACTIVE",
-            "INACTIVE"
+            "INACTIVE",
+            name="payment_method_status_enum"
         ),
         nullable=False,
         server_default="ACTIVE"

@@ -59,7 +59,8 @@ class Staff(db.Model):
             "ON_LEAVE",
             "SUSPENDED",
             "RESIGNED",
-            "TERMINATED"
+            "TERMINATED",
+            name="staff_employment_status_enum"
         ),
         nullable=False,
         server_default="ACTIVE"

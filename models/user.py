@@ -1,4 +1,4 @@
-﻿from extensions import db
+from extensions import db
 
 
 class User(db.Model):
@@ -38,7 +38,8 @@ class User(db.Model):
             "ACTIVE",
             "INACTIVE",
             "SUSPENDED",
-            "LOCKED"
+            "LOCKED",
+            name="user_account_status_enum" 
         ),
         nullable=False,
         default="ACTIVE"

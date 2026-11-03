@@ -28,7 +28,8 @@ class Service(db.Model):
             "MEAL",
             "GUIDE",
             "ACTIVITY",
-            "OTHER"
+            "OTHER",
+            name="service_type_enum"
         ),
         nullable=False
     )
@@ -36,7 +37,8 @@ class Service(db.Model):
     status = db.Column(
         db.Enum(
             "ACTIVE",
-            "INACTIVE"
+            "INACTIVE",
+              name="service_status_enum"
         ),
         nullable=False,
         server_default="ACTIVE"

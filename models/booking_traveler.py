@@ -31,7 +31,8 @@ class BookingTraveler(db.Model):
             "MALE",
             "FEMALE",
             "OTHER",
-            "PREFER_NOT_TO_SAY"
+            "PREFER_NOT_TO_SAY",
+             name="booking_traveler_gender_enum"
         ),
         nullable=True
     )
@@ -46,7 +47,7 @@ class BookingTraveler(db.Model):
             "NID",
             "BIRTH_CERTIFICATE",
             "PASSPORT"
-        ),
+        , name="booking_traveler_document_type_enum"),
         nullable=True
     )
 

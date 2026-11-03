@@ -53,7 +53,8 @@ class Destination(db.Model):
     status = db.Column(
         db.Enum(
             "ACTIVE",
-            "INACTIVE"
+            "INACTIVE",
+            name="destination_status_enum"
         ),
         nullable=False,
         server_default="ACTIVE"

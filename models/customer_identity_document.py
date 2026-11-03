@@ -20,7 +20,8 @@ class CustomerIdentityDocument(db.Model):
         db.Enum(
             "NID",
             "BIRTH_CERTIFICATE",
-            "PASSPORT"
+            "PASSPORT",
+             name="customer_identity_document_type_enum"
         ),
         nullable=False
     )
@@ -50,7 +51,8 @@ class CustomerIdentityDocument(db.Model):
             "PENDING",
             "VERIFIED",
             "REJECTED",
-            "EXPIRED"
+            "EXPIRED",
+            name="customer_identity_verification_status_enum"
         ),
         nullable=False,
         server_default="PENDING"

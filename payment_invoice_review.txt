@@ -989,7 +989,8 @@ class PaymentMethod(db.Model):
     status = db.Column(
         db.Enum(
             "ACTIVE",
-            "INACTIVE"
+            "INACTIVE",
+             name="invoice_record_status_enum"
         ),
         nullable=False,
         server_default="ACTIVE"
@@ -1086,7 +1087,8 @@ class Invoice(db.Model):
             "PAID",
             "PARTIALLY_PAID",
             "VOID",
-            "REFUNDED"
+            "REFUNDED",
+            name="invoice_status_enum"
         ),
         nullable=False,
         server_default="ISSUED"

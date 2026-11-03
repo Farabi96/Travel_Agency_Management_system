@@ -62,7 +62,8 @@ class TourPackage(db.Model):
             "DRAFT",
             "ACTIVE",
             "INACTIVE",
-            "ARCHIVED"
+            "ARCHIVED",
+            name="tour_package_status_enum"
         ),
         nullable=False,
         server_default="DRAFT"

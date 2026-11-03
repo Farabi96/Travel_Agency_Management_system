@@ -62,7 +62,8 @@ class Invoice(db.Model):
             "PAID",
             "PARTIALLY_PAID",
             "VOID",
-            "REFUNDED"
+            "REFUNDED",
+            name="invoice_status_enum"
         ),
         nullable=False,
         server_default="ISSUED"
