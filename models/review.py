@@ -44,7 +44,7 @@ class Review(db.Model):
             "APPROVED",
             "REJECTED",
             "HIDDEN",
-             name="review_status_enum"
+            name="review_status_enum"
         ),
         nullable=False,
         server_default="PENDING"

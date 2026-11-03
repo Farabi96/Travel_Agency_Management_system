@@ -20,18 +20,17 @@ class Notice(db.Model):
         nullable=False
     )
 
-    notice_type = db.Column(
+    invoice_status = db.Column(
         db.Enum(
-            "TRAVEL",
-            "BOOKING",
-            "PACKAGE",
-            "EMERGENCY",
-            "HOLIDAY",
-            "SYSTEM",
-            "GENERAL"
+            "ISSUED",
+            "PAID",
+            "PARTIALLY_PAID",
+            "VOID",
+            "REFUNDED",
+            name="notice_invoice_status_enum"
         ),
         nullable=False,
-        server_default="GENERAL"
+        server_default="ISSUED"
     )
 
     priority = db.Column(
@@ -39,7 +38,8 @@ class Notice(db.Model):
             "LOW",
             "NORMAL",
             "HIGH",
-            "URGENT"
+            "URGENT",
+            name="notice_priority_enum"
         ),
         nullable=False,
         server_default="NORMAL"
@@ -66,7 +66,8 @@ class Notice(db.Model):
             "DRAFT",
             "PUBLISHED",
             "EXPIRED",
-            "ARCHIVED"
+            "ARCHIVED",
+            name="notice_status_enum"
         ),
         nullable=False,
         server_default="DRAFT"

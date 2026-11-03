@@ -18,10 +18,10 @@ class CustomerIdentityDocument(db.Model):
 
     document_type = db.Column(
         db.Enum(
-            "NID",
+            "NID", 
             "BIRTH_CERTIFICATE",
             "PASSPORT",
-             name="customer_identity_document_type_enum"
+            name="customer_identity_document_type_enum"
         ),
         nullable=False
     )

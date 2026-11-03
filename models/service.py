@@ -38,7 +38,7 @@ class Service(db.Model):
         db.Enum(
             "ACTIVE",
             "INACTIVE",
-              name="service_status_enum"
+            name="service_status_enum"
         ),
         nullable=False,
         server_default="ACTIVE"

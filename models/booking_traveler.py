@@ -46,8 +46,8 @@ class BookingTraveler(db.Model):
         db.Enum(
             "NID",
             "BIRTH_CERTIFICATE",
-            "PASSPORT"
-        , name="booking_traveler_document_type_enum"),
+            "PASSPORT",
+            name="booking_traveler_document_type_enum"),
         nullable=True
     )
 

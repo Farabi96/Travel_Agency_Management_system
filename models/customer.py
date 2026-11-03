@@ -21,7 +21,7 @@ class Customer(db.Model):
         db.Enum(
             "BANGLADESHI",
             "FOREIGN",
-             name="customer_type_enum"
+            name="customer_type_enum"
         ),
         nullable=False
     )
@@ -47,7 +47,7 @@ class Customer(db.Model):
             "FEMALE",
             "OTHER",
             "PREFER_NOT_TO_SAY",
-             name="customer_gender_enum"
+            name="customer_gender_enum"
         ),
         nullable=True
     )
