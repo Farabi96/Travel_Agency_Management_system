@@ -536,3 +536,32 @@ export async function updateOwnProfile(profileData) {
     body: JSON.stringify(profileData),
   });
 }
+
+// ==============================
+// CUSTOMER FAVORITES / WISHLIST
+// ==============================
+
+// Get all favorites of the logged-in customer
+export async function getFavorites() {
+  return authenticatedRequest("/favorites/");
+}
+
+// Add a package to favorites
+export async function addFavorite(packageId) {
+  return authenticatedRequest("/favorites/", {
+    method: "POST",
+    body: JSON.stringify({
+      package_id: packageId,
+    }),
+  });
+}
+
+// Remove a package from favorites
+export async function deleteFavoriteByPackage(packageId) {
+  return authenticatedRequest(
+    `/favorites/package/${encodeURIComponent(packageId)}`,
+    {
+      method: "DELETE",
+    }
+  );
+}

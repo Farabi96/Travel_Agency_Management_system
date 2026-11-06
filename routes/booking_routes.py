@@ -615,7 +615,11 @@ def create_booking():
 
         departure = schedule.departure_datetime
 
-        if departure.date() <= date.today():
+        # Compare the complete departure datetime using Bangladesh local time.
+        # This allows same-day bookings when the departure time is still ahead.
+        now = datetime.now(ZoneInfo("Asia/Dhaka")).replace(tzinfo=None)
+
+        if departure <= now:
             return jsonify({
                 "error": "Bookings are only available for future departures"
             }), 400

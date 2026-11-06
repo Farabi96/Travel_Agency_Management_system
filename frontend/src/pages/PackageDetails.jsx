@@ -36,10 +36,15 @@ export default function PackageDetails() {
         }
 
         const scheduleData = await getSchedules(packageId);
-        const scheduleList = Array.isArray(scheduleData)
-          ? scheduleData
-          : scheduleData?.schedules ?? scheduleData?.value ?? [];
+         const scheduleList = (
+  Array.isArray(scheduleData)
+    ? scheduleData
+    : scheduleData?.schedules ?? scheduleData?.value ?? []
+).filter((schedule) => {
+  if (!schedule.departure_datetime) return false;
 
+  return new Date(schedule.departure_datetime) > new Date();
+});
         if (active) {
           setItem(selected);
           setSchedules(scheduleList);

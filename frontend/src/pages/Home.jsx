@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import {
   ArrowRight,
@@ -9,6 +8,7 @@ import {
   Compass,
   ShieldCheck,
   Headphones,
+  Sparkles,
 } from "lucide-react";
 import {
   getDestinations,
@@ -36,11 +36,12 @@ function photoUrl(photoId, width = 900) {
 function SectionHeading({ eyebrow, title, description }) {
   return (
     <div className="mb-9">
-      <p className="mb-2 text-sm font-bold uppercase tracking-[0.2em] text-teal-700">
+      <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-teal-700">
+        <Sparkles size={14} />
         {eyebrow}
       </p>
 
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
+      <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
         {title}
       </h2>
 
@@ -73,8 +74,8 @@ function unwrapList(data, keys = []) {
 }
 
 // Read destination relationships when the API provides them.
-// Supports common shapes: destination_ids, destinations,
-// package_destinations, and destination objects.
+// Supports destination_ids, destinations, package_destinations,
+// and destination objects.
 function getPackageDestinationIds(item) {
   const ids = new Set();
 
@@ -153,8 +154,6 @@ function isScheduledOnDate(schedule, travelDate) {
     return false;
   }
 
-  // Compare the date portion returned by the API.
-  // Works with ISO values such as 2026-11-10T09:00:00.
   return String(schedule.departure_datetime).slice(0, 10) === travelDate;
 }
 
@@ -221,7 +220,7 @@ export default function Home() {
     };
   }, []);
 
-  // Keep the existing login requirement for opening packages.
+  // Preserve login requirement and navigate to the selected package details.
   function handlePackageClick(item) {
     const token = sessionStorage.getItem("access_token");
     let user = null;
@@ -237,13 +236,12 @@ export default function Home() {
       return;
     }
 
-    navigate("/packages", {
-      state: {
-        destination: search.trim(),
-        travelDate,
-        packageId: item?.package_id ?? null,
-      },
-    });
+    if (!item?.package_id) {
+      navigate("/packages");
+      return;
+    }
+
+    navigate(`/packages/${item.package_id}`);
   }
 
   const query = normalizeSearch(search);
@@ -338,21 +336,27 @@ export default function Home() {
   const hasSearch = Boolean(search.trim() || travelDate);
 
   return (
-    <main className="min-h-screen bg-white text-slate-900">
+    <main className="min-h-screen overflow-hidden bg-white text-slate-900">
       {/* Hero section */}
       <section className="relative isolate overflow-hidden bg-slate-950">
+        {/* Local Bangladesh destination image */}
         <img
-          src={photoUrl("photo-1500534623283-312aade485b7", 2000)}
-          alt="Beautiful mountain landscape"
+          src="/images/sajek-valley.jpg"
+          alt="Sajek Valley, Bangladesh"
           className="absolute inset-0 -z-20 h-full w-full object-cover"
         />
 
-        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-slate-950/90 via-slate-950/65 to-slate-950/15" />
+        {/* Image overlay */}
+        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-slate-950/90 via-teal-950/65 to-slate-950/20" />
 
-        <div className="mx-auto grid min-h-[580px] max-w-7xl items-center gap-12 px-5 py-20 lg:grid-cols-[1.2fr_0.8fr] lg:px-8">
+        {/* Decorative glow */}
+        <div className="pointer-events-none absolute -right-24 -top-24 -z-10 h-80 w-80 rounded-full bg-teal-400/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 left-1/3 -z-10 h-72 w-72 rounded-full bg-cyan-300/15 blur-3xl" />
+
+        <div className="mx-auto grid min-h-[620px] max-w-7xl items-center gap-12 px-5 py-16 sm:py-20 lg:grid-cols-[1.2fr_0.8fr] lg:px-8">
           <div className="max-w-2xl">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-4 py-2 text-sm text-white backdrop-blur">
-              <Compass size={17} />
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-4 py-2 text-sm font-medium text-white shadow-lg backdrop-blur-md">
+              <Compass size={17} className="text-teal-300" />
               Your next adventure starts here
             </div>
 
@@ -371,38 +375,58 @@ export default function Home() {
             <div className="mt-9 flex flex-wrap gap-4">
               <a
                 href="#packages"
-                className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-6 py-3.5 font-bold text-white transition hover:bg-teal-400"
+                className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-6 py-3.5 font-bold text-white shadow-lg shadow-teal-950/20 transition duration-300 hover:-translate-y-0.5 hover:bg-teal-400"
               >
-                Explore packages <ArrowRight size={18} />
+                Explore packages
+                <ArrowRight size={18} />
               </a>
 
               <a
                 href="#destinations"
-                className="rounded-xl border border-white/40 px-6 py-3.5 font-semibold text-white transition hover:bg-white/10"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/40 bg-white/5 px-6 py-3.5 font-semibold text-white backdrop-blur-sm transition duration-300 hover:bg-white/15"
               >
                 Discover places
+                <MapPin size={17} />
               </a>
+            </div>
+
+            <div className="mt-10 flex flex-wrap gap-6 text-sm text-white/80">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={18} className="text-teal-300" />
+                Organized travel
+              </div>
+              <div className="flex items-center gap-2">
+                <Compass size={18} className="text-teal-300" />
+                Local destinations
+              </div>
             </div>
           </div>
 
           {/* Search form */}
           <div className="flex justify-end">
-            <div className="w-full max-w-sm rounded-3xl border border-white/30 bg-white/10 p-6 text-white shadow-2xl backdrop-blur-xl">
-              <p className="text-sm font-medium text-teal-200">
-                PLAN YOUR JOURNEY
-              </p>
+            <div className="w-full max-w-sm rounded-3xl border border-white/50 bg-white/95 p-6 text-slate-900 shadow-2xl shadow-slate-950/30 ring-1 ring-black/5 backdrop-blur-xl sm:p-7">
+              <div className="mb-6">
+                <p className="inline-flex items-center gap-2 text-xs font-extrabold tracking-[0.18em] text-teal-700">
+                  <Sparkles size={14} />
+                  PLAN YOUR JOURNEY
+                </p>
 
-              <h2 className="mt-2 text-2xl font-bold">
-                Where would you like to go?
-              </h2>
+                <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-slate-900">
+                  Where would you like to go?
+                </h2>
 
-              <form className="mt-6 space-y-4" onSubmit={handleSearchSubmit}>
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Find a destination and choose your travel date.
+                </p>
+              </div>
+
+              <form className="space-y-4" onSubmit={handleSearchSubmit}>
                 <label className="block">
-                  <span className="mb-2 block text-sm text-slate-200">
+                  <span className="mb-2 block text-sm font-semibold text-slate-600">
                     Destination
                   </span>
 
-                  <div className="flex items-center gap-3 rounded-xl bg-white px-4 py-3 text-slate-700">
+                  <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 transition focus-within:border-teal-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-teal-500/10">
                     <MapPin size={19} className="shrink-0 text-teal-700" />
 
                     <input
@@ -410,17 +434,17 @@ export default function Home() {
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder="Search a destination"
-                      className="w-full min-w-0 bg-transparent text-sm outline-none"
+                      className="w-full min-w-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
                     />
                   </div>
                 </label>
 
                 <label className="block min-w-0">
-                  <span className="mb-2 block text-sm text-slate-200">
-                    Travel Date
+                  <span className="mb-2 block text-sm font-semibold text-slate-600">
+                    Travel date
                   </span>
 
-                  <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white px-4 py-3 text-slate-700">
+                  <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 transition focus-within:border-teal-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-teal-500/10">
                     <CalendarDays
                       size={19}
                       className="shrink-0 text-teal-700"
@@ -431,14 +455,14 @@ export default function Home() {
                       value={travelDate}
                       min={new Date().toLocaleDateString("en-CA")}
                       onChange={(event) => setTravelDate(event.target.value)}
-                      className="block w-full min-w-0 flex-1 bg-transparent text-sm outline-none"
+                      className="block w-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
                     />
                   </div>
                 </label>
 
                 <button
                   type="submit"
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-3.5 font-bold transition hover:bg-teal-400"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-3.5 font-bold text-white shadow-lg shadow-teal-600/20 transition duration-300 hover:-translate-y-0.5 hover:bg-teal-700"
                 >
                   <Search size={18} />
                   Search packages
@@ -448,7 +472,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={clearSearch}
-                    className="w-full rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-800"
                   >
                     Clear search
                   </button>
@@ -457,11 +481,14 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        {/* Decorative bottom edge */}
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white/10 to-transparent" />
       </section>
 
       {/* Feature strip */}
-      <section className="border-b border-slate-100 bg-white">
-        <div className="mx-auto grid max-w-7xl gap-6 px-5 py-8 sm:grid-cols-3 lg:px-8">
+      <section className="relative z-10 border-b border-slate-100 bg-white">
+        <div className="mx-auto grid max-w-7xl gap-5 px-5 py-8 sm:grid-cols-3 lg:px-8">
           {[
             {
               icon: ShieldCheck,
@@ -479,13 +506,16 @@ export default function Home() {
               detail: "A smoother booking experience",
             },
           ].map((item) => (
-            <div key={item.title} className="flex items-center gap-4">
-              <div className="rounded-2xl bg-teal-50 p-3 text-teal-700">
+            <div
+              key={item.title}
+              className="group flex items-center gap-4 rounded-2xl border border-transparent p-3 transition hover:border-teal-100 hover:bg-teal-50/50"
+            >
+              <div className="rounded-2xl bg-teal-50 p-3 text-teal-700 transition group-hover:bg-teal-100">
                 <item.icon size={25} />
               </div>
 
               <div>
-                <h3 className="font-bold">{item.title}</h3>
+                <h3 className="font-bold text-slate-900">{item.title}</h3>
                 <p className="mt-1 text-sm text-slate-500">{item.detail}</p>
               </div>
             </div>
@@ -494,7 +524,10 @@ export default function Home() {
       </section>
 
       {/* Destinations */}
-      <section id="destinations" className="scroll-mt-24 py-20">
+      <section
+        id="destinations"
+        className="scroll-mt-24 bg-gradient-to-b from-white to-slate-50/70 py-20"
+      >
         <div className="mx-auto max-w-7xl px-5 lg:px-8">
           <SectionHeading
             eyebrow="Explore Bangladesh"
@@ -503,17 +536,15 @@ export default function Home() {
           />
 
           {error && (
-            <p className="mb-5 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+            <p className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               {error}
             </p>
           )}
 
           {loading ? (
-            <p className="text-slate-500">
-              Loading destinations from Flask...
-            </p>
+            <p className="text-slate-500">Loading destinations...</p>
           ) : visibleDestinations.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 p-6 text-slate-600">
+            <p className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
               No destinations match your search.
             </p>
           ) : (
@@ -537,7 +568,7 @@ export default function Home() {
                   }}
                   role="link"
                   tabIndex={0}
-                  className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white transition duration-300 hover:-translate-y-1 hover:shadow-xl"
+                  className="group cursor-pointer overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-teal-200 hover:shadow-xl hover:shadow-teal-900/10 focus:outline-none focus:ring-4 focus:ring-teal-500/20"
                 >
                   <div className="relative h-56 overflow-hidden">
                     <img
@@ -549,35 +580,50 @@ export default function Home() {
                       }
                       alt={destination.name || "Travel destination"}
                       loading="lazy"
-                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                      className="h-full w-full object-cover transition duration-700 group-hover:scale-110"
                     />
 
-                    <span className="absolute left-4 top-4 rounded-full bg-white/95 px-3 py-1.5 text-xs font-bold text-teal-800">
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-transparent to-transparent opacity-70 transition group-hover:opacity-90" />
+
+                    <span className="absolute left-4 top-4 rounded-full border border-white/50 bg-white/95 px-3 py-1.5 text-xs font-bold text-teal-800 shadow-sm">
                       {destination.status || "Destination"}
                     </span>
+
+                    <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between text-white">
+                      <div>
+                        <p className="text-xs font-medium text-white/80">
+                          Explore
+                        </p>
+                        <h3 className="mt-1 text-xl font-bold drop-shadow">
+                          {destination.name}
+                        </h3>
+                      </div>
+
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 backdrop-blur transition group-hover:bg-teal-500">
+                        <ArrowRight size={17} />
+                      </span>
+                    </div>
                   </div>
 
                   <div className="p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-xl font-bold">
-                        {destination.name}
-                      </h3>
-
-                      <MapPin
-                        size={19}
-                        className="shrink-0 text-teal-700"
-                      />
-                    </div>
-
-                    <p className="mt-2 text-sm text-slate-500">
+                    <p className="flex items-center gap-1.5 text-sm font-medium text-slate-500">
+                      <MapPin size={15} className="text-teal-700" />
                       {[destination.district, destination.division]
                         .filter(Boolean)
                         .join(", ")}
                     </p>
 
-                    <p className="mt-4 line-clamp-2 text-sm leading-6 text-slate-600">
+                    <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">
                       {destination.description || "Explore this destination."}
                     </p>
+
+                    <div className="mt-4 flex items-center gap-2 text-sm font-bold text-teal-700">
+                      Explore destination
+                      <ArrowRight
+                        size={16}
+                        className="transition-transform group-hover:translate-x-1"
+                      />
+                    </div>
                   </div>
                 </article>
               ))}
@@ -587,7 +633,10 @@ export default function Home() {
       </section>
 
       {/* Featured packages */}
-      <section id="packages" className="scroll-mt-24 bg-slate-50 py-20">
+      <section
+        id="packages"
+        className="scroll-mt-24 bg-gradient-to-b from-slate-50 to-white py-20"
+      >
         <div className="mx-auto max-w-7xl px-5 lg:px-8">
           <SectionHeading
             eyebrow="Find your experience"
@@ -596,7 +645,7 @@ export default function Home() {
           />
 
           {hasSearch && (
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-sm text-slate-600">
                 <span className="font-semibold text-slate-900">
                   Search filters:
@@ -618,7 +667,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={clearSearch}
-                className="text-sm font-semibold text-teal-700 hover:text-teal-900"
+                className="text-sm font-semibold text-teal-700 transition hover:text-teal-900"
               >
                 Clear filters
               </button>
@@ -628,11 +677,11 @@ export default function Home() {
           {loading ? (
             <p className="text-slate-500">Loading tour packages...</p>
           ) : packages.length === 0 ? (
-            <p className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600">
+            <p className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
               No tour packages are available yet.
             </p>
           ) : visiblePackages.length === 0 ? (
-            <p className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600">
+            <p className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
               No active packages match your selected destination and travel
               date. Try another destination or date.
             </p>
@@ -650,9 +699,9 @@ export default function Home() {
                   }}
                   role="link"
                   tabIndex={0}
-                  className="cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-xl"
+                  className="group cursor-pointer overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-teal-200 hover:shadow-xl hover:shadow-teal-900/10 focus:outline-none focus:ring-4 focus:ring-teal-500/20"
                 >
-                  <div className="relative h-52">
+                  <div className="relative h-56 overflow-hidden">
                     <img
                       src={
                         item.image_url ||
@@ -660,16 +709,22 @@ export default function Home() {
                       }
                       alt={item.package_name || "Tour package"}
                       loading="lazy"
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover transition duration-700 group-hover:scale-110"
                     />
 
-                    <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-slate-800">
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/35 via-transparent to-transparent" />
+
+                    <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full border border-white/60 bg-white/95 px-3 py-1.5 text-sm font-semibold text-slate-800 shadow-sm">
                       <Star
                         size={15}
                         className="fill-amber-400 text-amber-400"
                       />
                       Tour package
                     </div>
+
+                    <span className="absolute right-3 top-3 rounded-full bg-teal-600 px-3 py-1.5 text-xs font-bold text-white shadow">
+                      Available
+                    </span>
                   </div>
 
                   <div className="p-5">
@@ -677,7 +732,7 @@ export default function Home() {
                       {item.package_code}
                     </p>
 
-                    <h3 className="mt-2 text-xl font-bold">
+                    <h3 className="mt-2 text-xl font-bold text-slate-900 transition group-hover:text-teal-800">
                       {item.package_name}
                     </h3>
 
@@ -693,20 +748,31 @@ export default function Home() {
                         </p>
 
                         <p className="text-xl font-extrabold text-teal-700">
-                          ৳{Number(item.base_price || 0).toLocaleString("en-BD")}
+                          ৳
+                          {Number(item.base_price || 0).toLocaleString("en-BD")}
                         </p>
                       </div>
 
-                      <span className="text-sm text-slate-600">
+                      <span className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
                         {item.duration_days}D / {item.duration_nights}N
                       </span>
                     </div>
 
                     {travelDate && (
-                      <p className="mt-3 text-xs text-teal-700">
+                      <p className="mt-3 text-xs font-medium text-teal-700">
                         Has a scheduled departure on {travelDate}
                       </p>
                     )}
+
+                    <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+                      <span className="text-sm font-semibold text-slate-500">
+                        View package details
+                      </span>
+
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-50 text-teal-700 transition group-hover:bg-teal-600 group-hover:text-white">
+                        <ArrowRight size={17} />
+                      </span>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -715,80 +781,93 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Contact Information */}
-<div className="mx-auto mt-10 max-w-2xl rounded-2xl border border-slate-200 bg-slate-50 px-6 py-8 text-center">
-  <h3 className="text-xl font-bold text-slate-900">
-    Contact Us
-  </h3>
+      {/* Contact information */}
+      <section className="relative overflow-hidden bg-white px-5 py-16">
+        <div className="pointer-events-none absolute -left-24 top-0 h-64 w-64 rounded-full bg-teal-100/60 blur-3xl" />
+        <div className="pointer-events-none absolute -right-24 bottom-0 h-64 w-64 rounded-full bg-cyan-100/50 blur-3xl" />
 
-  <p className="mt-2 text-sm text-slate-500">
-    Have questions about a tour or booking? Get in touch with us.
-  </p>
+        <div className="relative mx-auto max-w-4xl">
+          <div className="rounded-3xl border border-slate-200 bg-white p-7 text-center shadow-lg shadow-slate-200/50 sm:p-10">
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-teal-700">
+              We’re here to help
+            </p>
 
-  {/* Email & Phone */}
-  <div className="mt-5 flex flex-col items-center justify-center gap-3 text-sm text-slate-700 sm:flex-row sm:gap-8">
-    <a
-      href="mailto:travelmate@gmail.com"
-      className="transition hover:text-teal-700"
-    >
-      <span className="font-semibold">Email:</span>{" "}
-      travelmate@gmail.com
-    </a>
+            <h2 className="mt-3 text-3xl font-extrabold text-slate-900">
+              Contact us
+            </h2>
 
-    <a
-      href="tel:+8801700000000"
-      className="transition hover:text-teal-700"
-    >
-      <span className="font-semibold">WhatsApp:</span>{" "}
-      +8801700000000
-    </a>
-  </div>
+            <p className="mx-auto mt-3 max-w-xl leading-7 text-slate-500">
+              Have questions about a tour or booking? Get in touch with us.
+            </p>
 
-  {/* Social Media */}
-  <div className="mt-6">
-    <p className="mb-3 text-sm font-semibold text-slate-700">
-      Follow Us
-    </p>
+            <div className="mt-6 flex flex-col items-center justify-center gap-3 text-sm text-slate-700 sm:flex-row sm:gap-8">
+              <a
+                href="mailto:travelmate@gmail.com"
+                className="rounded-lg px-3 py-2 transition hover:bg-teal-50 hover:text-teal-800"
+              >
+                <span className="font-semibold">Email:</span>{" "}
+                travelmate@gmail.com
+              </a>
 
-    <div className="flex items-center justify-center gap-5">
-      <a
-        href="https://www.facebook.com/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="font-medium text-slate-600 transition hover:text-blue-600"
-      >
-        Facebook
-      </a>
+              <a
+                href="tel:+8801700000000"
+                className="rounded-lg px-3 py-2 transition hover:bg-teal-50 hover:text-teal-800"
+              >
+                <span className="font-semibold">WhatsApp:</span>{" "}
+                +8801700000000
+              </a>
+            </div>
 
-      <a
-        href="https://www.instagram.com/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="font-medium text-slate-600 transition hover:text-pink-600"
-      >
-        Instagram
-      </a>
+            <div className="mt-7 border-t border-slate-100 pt-6">
+              <p className="mb-3 text-sm font-semibold text-slate-700">
+                Follow us
+              </p>
 
-      <a
-        href="https://www.youtube.com/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="font-medium text-slate-600 transition hover:text-red-600"
-      >
-        YouTube
-      </a>
-    </div>
-  </div>
-</div>
+              <div className="flex items-center justify-center gap-5">
+                <a
+                  href="https://www.facebook.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-slate-500 transition hover:text-blue-600"
+                >
+                  Facebook
+                </a>
+
+                <a
+                  href="https://www.instagram.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-slate-500 transition hover:text-pink-600"
+                >
+                  Instagram
+                </a>
+
+                <a
+                  href="https://www.youtube.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-slate-500 transition hover:text-red-600"
+                >
+                  YouTube
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* About */}
-      <section id="about" className="scroll-mt-24 py-20">
+      <section
+        id="about"
+        className="scroll-mt-24 bg-gradient-to-b from-slate-50 to-white py-20"
+      >
         <div className="mx-auto max-w-4xl px-5 text-center">
-          <p className="text-sm font-bold uppercase tracking-[0.2em] text-teal-700">
+          <p className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-teal-700">
+            <Compass size={14} />
             About TravelMate
           </p>
 
-          <h2 className="mt-3 text-3xl font-bold md:text-4xl">
+          <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
             Making travel planning simpler
           </h2>
 
@@ -798,8 +877,6 @@ export default function Home() {
             travelers plan and manage their journeys more easily.
           </p>
         </div>
-
-      
       </section>
 
       {/* Footer */}

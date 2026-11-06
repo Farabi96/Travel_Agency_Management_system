@@ -7,6 +7,7 @@ import {
   CheckCheck,
   ChevronDown,
   LayoutDashboard,
+  CalendarCheck,
   X,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -260,9 +261,8 @@ export default function Navbar() {
             <>
               {isCustomer && (
                 <>
-                  <Link to="/dashboard" className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-semibold transition ${location.pathname === "/dashboard" ? "bg-teal-50 text-teal-700" : "text-slate-600 hover:bg-slate-50 hover:text-teal-700"}`}><LayoutDashboard size={16} /> Dashboard</Link>
-                  <Link to="/customer/profile" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">My Profile</Link>
-                  <Link to="/customer/bookings" className="px-2 text-sm font-medium text-slate-600 hover:text-teal-700">My Bookings</Link>
+                  <Link to="/dashboard" className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-bold transition ${location.pathname === "/dashboard" ? "border-teal-200 bg-teal-50 text-teal-800 shadow-sm" : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-teal-700"}`}><Compass size={16} /> My Travel Hub</Link>
+                  <Link to="/customer/bookings" className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${location.pathname.startsWith("/customer/bookings") ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50 hover:text-teal-700"}`}><CalendarCheck size={16} /> My Bookings</Link>
                 </>
               )}
              
@@ -311,7 +311,7 @@ export default function Navbar() {
                     </div>
                     <div className="p-2">
                       {isHigherAdmin && <Link to="/dashboard" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><LayoutDashboard size={17} /> Open Admin Dashboard</Link>}
-                      {isCustomer && <Link to="/customer/profile" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><UserRound size={17} /> My profile</Link>}
+                      {isCustomer && <Link to="/dashboard" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-teal-50 hover:text-teal-800"><Compass size={17} /> Open My Travel Hub</Link>}
                       <button type="button" onClick={handleLogout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"><LogOut size={17} /> Log out</button>
                     </div>
                   </div>
@@ -337,7 +337,7 @@ export default function Navbar() {
           <Link className="block rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50" to="/packages" onClick={() => setMenuOpen(false)}>Packages</Link>
           {isLoggedIn ? (
             <>
-              {isCustomer && <><Link className="block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50" to="/dashboard" onClick={() => setMenuOpen(false)}>Dashboard</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/customer/profile" onClick={() => setMenuOpen(false)}>My Profile</Link><Link className="block rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50" to="/customer/bookings" onClick={() => setMenuOpen(false)}>My Bookings</Link></>}
+              {isCustomer && <><Link className="flex items-center gap-2 rounded-xl bg-teal-50 px-3 py-2.5 text-sm font-bold text-teal-800 hover:bg-teal-100" to="/dashboard" onClick={() => setMenuOpen(false)}><Compass size={17} /> My Travel Hub</Link><Link className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" to="/customer/bookings" onClick={() => setMenuOpen(false)}><CalendarCheck size={17} /> My Bookings</Link></>}
               {isStaff && (
   <Link
     className="block rounded-xl px-3 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50"

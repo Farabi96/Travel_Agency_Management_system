@@ -20,18 +20,20 @@ class Notice(db.Model):
         nullable=False
     )
 
-    invoice_status = db.Column(
-        db.Enum(
-            "ISSUED",
-            "PAID",
-            "PARTIALLY_PAID",
-            "VOID",
-            "REFUNDED",
-            name="notice_invoice_status_enum"
-        ),
-        nullable=False,
-        server_default="ISSUED"
-    )
+    notice_type = db.Column(
+    db.Enum(
+        "TRAVEL",
+        "BOOKING",
+        "PACKAGE",
+        "EMERGENCY",
+        "HOLIDAY",
+        "SYSTEM",
+        "GENERAL",
+        name="NoticeType",
+        create_type=False
+    ),
+    nullable=False
+)
 
     priority = db.Column(
         db.Enum(

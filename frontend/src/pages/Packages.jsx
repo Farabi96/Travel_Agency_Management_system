@@ -1,4 +1,4 @@
- 
+  
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import PackageReviews from "../components/PackageReviews";
@@ -14,6 +14,7 @@ import {
   CalendarPlus,
   Search,
   RotateCcw,
+  Heart,
 } from "lucide-react";
 import {
   getPackages,
@@ -28,6 +29,9 @@ import {
   cancelSchedule,
   createBooking,
   uploadImage,
+  getFavorites,
+  addFavorite,
+  deleteFavoriteByPackage,
 } from "../services/api";
 
 function formatDateTime(value) {
@@ -62,6 +66,9 @@ export default function Packages() {
   const [availability, setAvailability] = useState({});
   const [scheduleLoading, setScheduleLoading] = useState({});
   const [scheduleErrors, setScheduleErrors] = useState({});
+  const [favoriteIds, setFavoriteIds] = useState([]);
+  const [favoriteBusyIds, setFavoriteBusyIds] = useState([]);
+  const [favoriteError, setFavoriteError] = useState("");
 
   
   const user = JSON.parse(sessionStorage.getItem("user") || "null");
@@ -231,6 +238,60 @@ setBookingSuccessBySchedule((prev) => ({
   }, []);
 
 
+
+  // Load the logged-in customer's saved packages.
+  useEffect(() => {
+    if (role !== "CUSTOMER" || !sessionStorage.getItem("access_token")) {
+      setFavoriteIds([]);
+      return;
+    }
+
+    let active = true;
+    getFavorites()
+      .then((data) => {
+        if (!active) return;
+        const records = Array.isArray(data) ? data : data?.favorites ?? [];
+        setFavoriteIds(records.map((favorite) => Number(favorite.package_id)));
+      })
+      .catch((err) => {
+        if (active) setFavoriteError(err.message || "Could not load your wishlist.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [role]);
+
+  async function toggleFavorite(packageId) {
+    if (role !== "CUSTOMER" || !sessionStorage.getItem("access_token")) {
+      window.location.href = "/login";
+      return;
+    }
+    if (favoriteBusyIds.includes(packageId)) return;
+
+    setFavoriteError("");
+    setFavoriteBusyIds((current) => [...current, packageId]);
+    const isFavorite = favoriteIds.includes(Number(packageId));
+    setFavoriteIds((current) =>
+      isFavorite
+        ? current.filter((id) => id !== Number(packageId))
+        : [...current, Number(packageId)]
+    );
+
+    try {
+      if (isFavorite) await deleteFavoriteByPackage(packageId);
+      else await addFavorite(packageId);
+    } catch (err) {
+      setFavoriteIds((current) =>
+        isFavorite
+          ? [...current, Number(packageId)]
+          : current.filter((id) => id !== Number(packageId))
+      );
+      setFavoriteError(err.message || "Could not update your wishlist.");
+    } finally {
+      setFavoriteBusyIds((current) => current.filter((id) => id !== packageId));
+    }
+  }
 
   function normalizeSearch(value = "") {
     return String(value).toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
@@ -730,17 +791,17 @@ setBookingSuccessBySchedule((prev) => ({
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-5 py-12 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <div className="rounded-3xl bg-gradient-to-r from-teal-900 via-teal-800 to-cyan-800 px-6 py-8 text-white shadow-sm sm:px-8 sm:py-10">
-          <p className="font-bold uppercase tracking-[0.2em] text-teal-200">
+    <main className="relative min-h-screen overflow-hidden bg-gradient-to-b from-slate-50 via-cyan-50/40 to-white px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+      <div className="relative z-10 mx-auto max-w-7xl">
+        <div className="relative isolate overflow-hidden rounded-[2rem] border border-white/20 bg-cover bg-center px-6 py-9 text-white shadow-[0_24px_70px_rgba(8,47,73,0.28)] sm:px-10 sm:py-12 lg:px-14 lg:py-16" style={{ backgroundImage: `linear-gradient(115deg, rgba(8,35,54,.88), rgba(8,79,89,.25), rgba(13,148,136,.42)), url("/images/keokradong.jpg")` }}>
+          <p className="inline-flex rounded-full border border-white/25 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-cyan-100 backdrop-blur-md">
             Explore experiences
           </p>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-extrabold sm:text-4xl">Tour Packages</h1>
-              <p className="mt-3 max-w-2xl leading-7 text-teal-50/90">
+              <h1 className="text-4xl font-black tracking-tight drop-shadow sm:text-5xl lg:text-6xl">Tour Packages</h1>
+              <p className="mt-4 max-w-2xl text-base leading-8 text-white/85 sm:text-lg">
                 Find your next adventure by destination and departure date.
               </p>
             </div>
@@ -758,7 +819,7 @@ setBookingSuccessBySchedule((prev) => ({
           </div>
         </div>
 
-        <section aria-label="Search tour packages" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <section aria-label="Search tour packages" className="mt-7 rounded-[1.75rem] border border-white/80 bg-white/85 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-7">
           <div className="mb-4 flex items-center gap-2">
             <Search size={19} className="text-teal-700" />
             <h2 className="font-bold text-slate-900">Find a package</h2>
@@ -820,6 +881,11 @@ setBookingSuccessBySchedule((prev) => ({
         {formMessage && (
           <p className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">
             {formMessage}
+          </p>
+        )}
+        {favoriteError && (
+          <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
+            {favoriteError}
           </p>
         )}
 
@@ -1068,7 +1134,7 @@ setBookingSuccessBySchedule((prev) => ({
         )}
 
         {!loading && !error && filteredPackages.length > 0 && (
-          <div className="mt-8 grid items-stretch gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-9 grid items-stretch gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {filteredPackages.map((item) => {
               const packageId = item.package_id;
               const isExpanded = expandedPackage === packageId;
@@ -1091,30 +1157,63 @@ setBookingSuccessBySchedule((prev) => ({
               return (
                 <article
                   key={packageId}
-                  className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg"
+                  className="group relative flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-white bg-white shadow-[0_12px_40px_rgba(15,23,42,0.09)] transition duration-300 hover:-translate-y-2 hover:shadow-[0_24px_60px_rgba(13,148,136,0.18)]"
                 >
                   {item.image_url ? (
                     <img
                       src={item.image_url}
                       alt={item.package_name}
-                      className="h-40 w-full object-cover"
+                      className="h-56 w-full object-cover transition duration-700 group-hover:scale-105"
                       loading="lazy"
                       onError={(event) => {
                         event.currentTarget.style.display = "none";
                       }}
                     />
                   ) : (
-                    <div className="flex h-40 items-center justify-center bg-gradient-to-br from-teal-700 to-cyan-500 text-white">
+                    <div className="flex h-56 items-center justify-center bg-gradient-to-br from-teal-700 via-cyan-600 to-sky-500 text-white">
                       <MapPin size={42} />
                     </div>
                   )}
 
-                  <div className="flex flex-1 flex-col p-6">
-                    <p className="text-xs font-bold uppercase tracking-wider text-teal-700">
+                  {role === "CUSTOMER" && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleFavorite(packageId);
+                      }}
+                      disabled={favoriteBusyIds.includes(packageId)}
+                      aria-label={
+                        favoriteIds.includes(Number(packageId))
+                          ? `Remove ${item.package_name} from wishlist`
+                          : `Add ${item.package_name} to wishlist`
+                      }
+                      aria-pressed={favoriteIds.includes(Number(packageId))}
+                      title={
+                        favoriteIds.includes(Number(packageId))
+                          ? "Remove from wishlist"
+                          : "Add to wishlist"
+                      }
+                      className={`absolute right-4 top-4 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/70 shadow-lg backdrop-blur-md transition hover:scale-110 disabled:cursor-wait disabled:opacity-60 ${
+                        favoriteIds.includes(Number(packageId))
+                          ? "bg-rose-500 text-white"
+                          : "bg-white/90 text-slate-700 hover:bg-rose-50 hover:text-rose-600"
+                      }`}
+                    >
+                      <Heart
+                        size={21}
+                        fill={favoriteIds.includes(Number(packageId)) ? "currentColor" : "none"}
+                        strokeWidth={2.2}
+                      />
+                    </button>
+                  )}
+
+                  <div className="flex flex-1 flex-col p-6 sm:p-7">
+                    <p className="inline-flex w-fit rounded-full bg-teal-50 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.16em] text-teal-800">
                       {item.package_code}
                     </p>
 
-                    <h2 className="mt-2 text-xl font-bold text-slate-900">
+                    <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900">
                       {item.package_name}
                     </h2>
 
@@ -1180,7 +1279,7 @@ setBookingSuccessBySchedule((prev) => ({
                         <p className="text-xs text-slate-500">
                           Starting from
                         </p>
-                        <p className="text-xl font-extrabold text-teal-700">
+                        <p className="text-2xl font-black tracking-tight text-teal-700">
                           ৳{Number(item.base_price).toLocaleString("en-BD")}
                         </p>
                       </div>
@@ -1346,7 +1445,7 @@ setBookingSuccessBySchedule((prev) => ({
                     <button
                       type="button"
                       onClick={() => toggleSchedules(item)}
-                      className="mt-5 w-full rounded-lg bg-teal-700 px-4 py-3 font-semibold text-white transition hover:bg-teal-800"
+                      className="mt-5 w-full rounded-2xl bg-gradient-to-r from-teal-700 to-cyan-700 px-4 py-3.5 font-bold text-white shadow-md shadow-teal-900/15 transition hover:-translate-y-0.5 hover:from-teal-800 hover:to-cyan-800"
                     >
                       {isExpanded
                         ? "Hide Departure Dates"

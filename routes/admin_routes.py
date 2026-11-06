@@ -589,6 +589,8 @@ def update_refund(refund_id):
 def admin_stats():
     from datetime import date, datetime, timedelta
     from decimal import Decimal
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import and_
 
     # -----------------------------------------------------
     # 1. DATE RANGE FILTER
@@ -672,6 +674,42 @@ def admin_stats():
     )
     total_packages = (
         db.session.query(func.count(TourPackage.package_id)).scalar() or 0
+    )
+
+    # -----------------------------------------------------
+    # 2A. CURRENTLY ONGOING TOURS AND PASSENGERS
+    # Count distinct active schedules, not individual bookings.
+    # Only confirmed bookings on schedules currently in progress count.
+    # -----------------------------------------------------
+
+    now_dhaka = datetime.now(ZoneInfo("Asia/Dhaka")).replace(tzinfo=None)
+
+    schedule_model = Booking.schedule.property.mapper.class_
+
+    ongoing_booking_filter = (
+        Booking.status.has(
+            func.upper(BookingStatus.status_name) == "CONFIRMED"
+        ),
+        Booking.schedule.has(
+            and_(
+                schedule_model.departure_datetime <= now_dhaka,
+                schedule_model.return_datetime >= now_dhaka
+            )
+        )
+    )
+
+    ongoing_tours = (
+        db.session.query(func.count(func.distinct(Booking.schedule_id)))
+        .filter(*ongoing_booking_filter)
+        .scalar() or 0
+    )
+
+    passengers_on_tour = (
+        db.session.query(
+            func.coalesce(func.sum(Booking.number_of_travelers), 0)
+        )
+        .filter(*ongoing_booking_filter)
+        .scalar() or 0
     )
 
     # -----------------------------------------------------
@@ -955,6 +993,8 @@ def admin_stats():
         "total_bookings": total_bookings,
         "total_destinations": total_destinations,
         "total_packages": total_packages,
+        "ongoing_tours": int(ongoing_tours),
+        "passengers_on_tour": int(passengers_on_tour),
         "booking_status_breakdown": booking_status_breakdown,
         "payment_status_breakdown": payment_status_breakdown,
         "payment_amounts": payment_amounts,

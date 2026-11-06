@@ -24,6 +24,8 @@ import ReportsAudit from "./pages/ReportsAudit";
 import ActivityLogs from "./pages/ActivityLogs";
 import StaffActivity from "./pages/StaffActivity";
 import StaffActivityDetails from "./pages/StaffActivityDetails";
+import PackageDetails from "./pages/PackageDetails";
+import Wishlist from "./pages/Wishlist";
 
 function AppLayout() {
   const location = useLocation();
@@ -75,10 +77,13 @@ function AppLayout() {
         <Route path="/admin/reports" element={<ReportsAudit />} />
         <Route path="/admin/activity-logs" element={<ActivityLogs />} />
         <Route path="/admin/staff-activity" element={<StaffActivity />} />
+        <Route path="/packages/:packageId" element={<PackageDetails />} />
         <Route
           path="/admin/staff-activity/:staffId"
           element={<StaffActivityDetails />}
         />
+        <Route path="/wishlist" element={<Wishlist />} />
+        
       </Routes>
     </>
   );
