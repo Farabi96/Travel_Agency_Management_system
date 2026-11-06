@@ -565,3 +565,11 @@ export async function deleteFavoriteByPackage(packageId) {
     }
   );
 }
+
+/* ==============================
+   ONGOING TOURS OVERVIEW
+============================== */
+
+export async function getOngoingTourOverview() {
+  return authenticatedRequest("/admin/ongoing-tours");
+}

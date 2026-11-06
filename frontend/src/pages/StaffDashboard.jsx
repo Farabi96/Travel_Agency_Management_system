@@ -10,6 +10,8 @@ import {
   AlertCircle,
   MapPin,
   Package,
+  Globe2,
+  Users,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -31,6 +33,9 @@ import {
   getAuditLogs,
 } from "../services/api";
 import TravelCalendar from "./TravelCalendar";
+import { getOngoingTourOverview } from "../services/api";
+import OngoingTourOverview from "./OngoingTourOverview";
+ 
 
 const COLORS = ["#0d9488", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"];
 
@@ -52,9 +57,17 @@ const getStatus = (item) =>
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
 
-function SummaryCard({ title, value, subtitle, icon: Icon }) {
+function SummaryCard({ title, value, subtitle, icon: Icon, onClick }) {
+  const CardTag = onClick ? "button" : "div";
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <CardTag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={`w-full rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm ${
+        onClick ? "cursor-pointer transition hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2" : ""
+      }`}
+    >
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-slate-500">{title}</p>
         <div className="rounded-xl bg-teal-50 p-3">
@@ -65,7 +78,7 @@ function SummaryCard({ title, value, subtitle, icon: Icon }) {
         {value}
       </p>
       <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-    </div>
+    </CardTag>
   );
 }
 
@@ -84,6 +97,29 @@ export default function StaffDashboard({ user }) {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [ongoingOverviewType, setOngoingOverviewType] = useState(null);
+  const [tourCounts, setTourCounts] = useState({
+    ongoingTours: null,
+    passengersOnTour: null,
+  });
+
+  useEffect(() => {
+    let active = true;
+    getOngoingTourOverview()
+      .then((result) => {
+        if (!active) return;
+        setTourCounts({
+          ongoingTours: result?.ongoing_tour_count ?? 0,
+          passengersOnTour: result?.passenger_count ?? 0,
+        });
+      })
+      .catch((err) => {
+        console.error("Could not load ongoing tour counts:", err);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -356,6 +392,31 @@ export default function StaffDashboard({ user }) {
               </div>
             </section>
 
+            <section>
+              <div className="mb-4">
+                <h2 className="text-xl font-bold text-slate-900">Tours in Progress</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Open the live tour list or view the passengers currently traveling.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <SummaryCard
+                  title="Ongoing tours"
+                  value={tourCounts.ongoingTours ?? "—"}
+                  subtitle="Tours currently in progress · View details"
+                  icon={Globe2}
+                  onClick={() => setOngoingOverviewType("tours")}
+                />
+                <SummaryCard
+                  title="Passengers on tour"
+                  value={tourCounts.passengersOnTour ?? "—"}
+                  subtitle="Travelers currently on ongoing tours · View details"
+                  icon={Users}
+                  onClick={() => setOngoingOverviewType("passengers")}
+                />
+              </div>
+            </section>
+
             <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 className="text-lg font-bold text-slate-900">
@@ -548,6 +609,12 @@ export default function StaffDashboard({ user }) {
           </>
         )}
       </div>
+      {ongoingOverviewType && (
+        <OngoingTourOverview
+          type={ongoingOverviewType}
+          onClose={() => setOngoingOverviewType(null)}
+        />
+      )}
     </main>
   );
 }

@@ -35,6 +35,7 @@ import {
 } from "recharts";
 import CustomerDashboard from "./CustomerDashboard";
 import StaffDashboard from "./StaffDashboard";
+import OngoingTourOverview from "./OngoingTourOverview";
 
 const API_BASE_URL = "http://127.0.0.1:5000/api";
 
@@ -127,7 +128,7 @@ function EmptyChart({ loading, message }) {
   );
 }
 
-function StatCard({ title, value, note, icon: Icon, accent, loading }) {
+function StatCard({ title, value, note, icon: Icon, accent, loading, onClick }) {
   const accentStyles = {
     teal: "bg-teal-50 text-teal-700 ring-teal-100",
     blue: "bg-blue-50 text-blue-700 ring-blue-100",
@@ -137,8 +138,16 @@ function StatCard({ title, value, note, icon: Icon, accent, loading }) {
     emerald: "bg-emerald-50 text-emerald-700 ring-emerald-100",
   };
 
+  const CardTag = onClick ? "button" : "article";
+
   return (
-    <article className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md sm:p-6">
+    <CardTag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={`group w-full rounded-2xl border border-slate-200/80 bg-white p-5 text-left shadow-sm transition duration-200 sm:p-6 ${
+        onClick ? "cursor-pointer hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2" : "hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className={`rounded-xl p-3 ring-1 ${accentStyles[accent] || accentStyles.teal}`}>
           <Icon size={21} strokeWidth={2} />
@@ -156,12 +165,13 @@ function StatCard({ title, value, note, icon: Icon, accent, loading }) {
         )}
       </p>
       <p className="mt-2 text-xs leading-5 text-slate-500">{note}</p>
-    </article>
+    </CardTag>
   );
 }
 
 export default function Dashboard() {
   const location = useLocation();
+  const [ongoingOverviewType, setOngoingOverviewType] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     destinations: null,
@@ -348,6 +358,7 @@ export default function Dashboard() {
         note: "Tours currently in progress",
         icon: Globe2,
         accent: "amber",
+        onClick: () => setOngoingOverviewType("tours"),
       },
       {
         title: "Passengers on tour",
@@ -355,6 +366,7 @@ export default function Dashboard() {
         note: "Travelers currently on ongoing tours",
         icon: Users,
         accent: "rose",
+        onClick: () => setOngoingOverviewType("passengers"),
       },
       {
         title: "Paid revenue",
@@ -684,7 +696,7 @@ export default function Dashboard() {
 
                   <ChartCard
                     title="Payment overview"
-                    description="Payment status distribution and refund summary"
+                    description="Payment statuses and completed refund records"
                   >
                     <div className="h-[260px] w-full">
                       {paymentStatusData.length > 0 ? (
@@ -707,7 +719,7 @@ export default function Dashboard() {
                               ))}
                             </Pie>
                             <Tooltip
-                              formatter={(value, name) => [`${Number(value) || 0} payments`, name]}
+                              formatter={(value, name) => [`${Number(value) || 0} records`, name]}
                               contentStyle={{ border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }}
                             />
                             <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
@@ -818,6 +830,12 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        {ongoingOverviewType && (
+          <OngoingTourOverview
+            type={ongoingOverviewType}
+            onClose={() => setOngoingOverviewType(null)}
+          />
+        )}
       </main>
     );
   }

@@ -10,6 +10,7 @@ from auth_utils import role_required, permission_required
 from extensions import db
 from models.user import User
 from models.refund import Refund
+from models.booking_traveler import BookingTraveler
 from models import (
     Booking,
     BookingStatus,
@@ -20,6 +21,7 @@ from models import (
     Role,
     Staff,
     TourPackage,
+    TourSchedule,
 )
 
 from sqlalchemy import func
@@ -795,6 +797,12 @@ def admin_stats():
         func.upper(Refund.refund_status) == "COMPLETED"
     )
 
+    # Refunds are stored separately from Payment records and are linked
+    # to bookings, not directly to individual payments. Count completed
+    # refund records here instead of changing the original Payment status.
+    completed_refund_count = completed_refunds_query.count()
+    payment_status_breakdown["REFUNDED"] = completed_refund_count
+
     refunded_amount = float(
         db.session.query(
             func.coalesce(func.sum(Refund.refund_amount), 0)
@@ -997,6 +1005,7 @@ def admin_stats():
         "passengers_on_tour": int(passengers_on_tour),
         "booking_status_breakdown": booking_status_breakdown,
         "payment_status_breakdown": payment_status_breakdown,
+        "completed_refund_count": completed_refund_count,
         "payment_amounts": payment_amounts,
         "paid_revenue": round(paid_revenue, 2),
         "refunded_amount": round(refunded_amount, 2),
@@ -1549,4 +1558,138 @@ def get_staff_activity_detail(staff_id):
             "total": pagination.total,
             "total_pages": pagination.pages,
         },
+    }), 200
+
+
+# ---------------------------------------------------------
+# ONGOING TOUR DETAILS
+# Shared read-only overview for HIGHER_ADMIN and STAFF.
+# ---------------------------------------------------------
+
+@admin_bp.route("/ongoing-tours", methods=["GET"])
+@jwt_required()
+@role_required("HIGHER_ADMIN", "STAFF")
+def get_ongoing_tour_details():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import and_
+
+    now_dhaka = datetime.now(ZoneInfo("Asia/Dhaka")).replace(tzinfo=None)
+
+    confirmed_booking_filter = (
+        Booking.status.has(
+            func.upper(BookingStatus.status_name) == "CONFIRMED"
+        ),
+        Booking.schedule.has(
+            and_(
+                TourSchedule.departure_datetime <= now_dhaka,
+                TourSchedule.return_datetime >= now_dhaka,
+                func.upper(TourSchedule.schedule_status).notin_(
+                    ["CANCELLED", "COMPLETED"]
+                )
+            )
+        )
+    )
+
+    schedules = (
+        db.session.query(TourSchedule)
+        .join(Booking, Booking.schedule_id == TourSchedule.schedule_id)
+        .filter(*confirmed_booking_filter)
+        .distinct()
+        .order_by(TourSchedule.departure_datetime.asc())
+        .all()
+    )
+
+    ongoing_tours = []
+    passenger_rows = []
+    passenger_count = 0
+
+    for schedule in schedules:
+        confirmed_bookings = [
+            booking for booking in schedule.bookings
+            if booking.status
+            and str(booking.status.status_name).upper() == "CONFIRMED"
+        ]
+
+        bookings_data = []
+        schedule_passenger_count = 0
+
+        for booking in confirmed_bookings:
+            traveler_records = BookingTraveler.query.filter_by(
+                booking_id=booking.booking_id
+            ).order_by(BookingTraveler.traveler_id.asc()).all()
+
+            customer = booking.customer
+            customer_name = (
+                " ".join(
+                    part for part in [
+                        getattr(customer, "first_name", None),
+                        getattr(customer, "last_name", None)
+                    ] if part
+                ) if customer else None
+            )
+
+            travelers_data = [
+                {
+                    "traveler_id": traveler.traveler_id,
+                    "full_name": traveler.full_name,
+                    "phone_number": getattr(traveler, "phone_number", None)
+                }
+                for traveler in traveler_records
+            ]
+
+            # Older bookings may not have individual traveler rows.
+            # Keep one primary customer entry as a fallback, while the
+            # authoritative passenger count remains number_of_travelers.
+            if not travelers_data and customer:
+                travelers_data = [{
+                    "traveler_id": None,
+                    "full_name": customer_name or "Customer",
+                    "phone_number": customer.phone
+                }]
+
+            booking_passenger_count = int(booking.number_of_travelers or 0)
+            schedule_passenger_count += booking_passenger_count
+
+            booking_item = {
+                "booking_id": booking.booking_id,
+                "booking_reference": booking.booking_reference,
+                "customer_name": customer_name or "Not available",
+                "customer_phone": customer.phone if customer else None,
+                "number_of_travelers": booking_passenger_count,
+                "travelers": travelers_data
+            }
+            bookings_data.append(booking_item)
+
+            for traveler in travelers_data:
+                passenger_rows.append({
+                    **traveler,
+                    "booking_id": booking.booking_id,
+                    "booking_reference": booking.booking_reference,
+                    "package_name": (
+                        schedule.package.package_name
+                        if schedule.package else "Tour package"
+                    ),
+                    "schedule_id": schedule.schedule_id
+                })
+
+        passenger_count += schedule_passenger_count
+        ongoing_tours.append({
+            "schedule_id": schedule.schedule_id,
+            "package_name": (
+                schedule.package.package_name
+                if schedule.package else "Tour package"
+            ),
+            "departure_datetime": schedule.departure_datetime.isoformat(),
+            "return_datetime": schedule.return_datetime.isoformat(),
+            "schedule_status": schedule.schedule_status,
+            "passenger_count": schedule_passenger_count,
+            "bookings": bookings_data
+        })
+
+    return jsonify({
+        "ongoing_tours": ongoing_tours,
+        "passengers": passenger_rows,
+        "ongoing_tour_count": len(ongoing_tours),
+        "passenger_count": passenger_count
     }), 200
